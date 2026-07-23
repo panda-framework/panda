@@ -1,3 +1,11 @@
 .env
 node_modules/
 generated_wallets/
+.pnpm-store/
+dist/
+.turbo/
+.DS_Store
+apps/dashboard/dist/
+apps/dashboard/dist-types/
+apps/daemon/data/
+*.tsbuildinfo

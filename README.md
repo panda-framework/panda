@@ -78,6 +78,94 @@ Planned areas of development include:
 - Human approvals
 - Distributed execution
 
+## Initial TypeScript Scaffold
+
+This repository is now organized as a lightweight pnpm monorepo for the initial
+PANDA framework scaffold.
+
+```text
+panda/
+  apps/
+    cli/
+    daemon/
+    dashboard/
+  packages/
+    core/
+    graph/
+    sdk/
+    shared/
+  examples/
+  docs/
+  scripts/
+```
+
+### Workspace Packages
+
+- `apps/cli`: `panda` command surface powered by `commander`.
+- `apps/daemon`: local Fastify daemon with HTTP API and WebSocket events.
+- `apps/dashboard`: React, Vite, TypeScript, Tailwind dashboard.
+- `packages/core`: agent sessions, state helpers, memory store, config.
+- `packages/graph`: PANDA loop implemented as LangGraph nodes.
+- `packages/sdk`: typed client for daemon HTTP APIs.
+- `packages/shared`: shared types, IDs, timestamps, and logger utilities.
+
+### Development
+
+Install dependencies:
+
+```bash
+pnpm install
+```
+
+Start daemon and dashboard together:
+
+```bash
+pnpm dev
+```
+
+Build everything:
+
+```bash
+pnpm build
+```
+
+Run type checks:
+
+```bash
+pnpm typecheck
+```
+
+Start the built daemon:
+
+```bash
+pnpm start
+```
+
+### CLI
+
+The scaffold includes the required initial commands:
+
+```bash
+pnpm --filter @panda/cli panda init
+pnpm --filter @panda/cli panda dev
+pnpm --filter @panda/cli panda daemon
+pnpm --filter @panda/cli panda dashboard
+pnpm --filter @panda/cli panda doctor
+pnpm --filter @panda/cli panda version
+```
+
+### Daemon API
+
+By default the daemon listens on `http://127.0.0.1:4317`.
+
+- `GET /health`
+- `GET /sessions`
+- `GET /sessions/:id`
+- `POST /runs`
+- `WS /events`
+
+The dashboard communicates only through the local daemon API and WebSocket.
+
 <!-- donations:start -->
 ## Donations
 

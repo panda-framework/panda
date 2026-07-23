@@ -1,15 +1,26 @@
 {
   "name": "panda",
   "version": "1.0.0",
-  "description": "PANDA is an open-source agent framework for building intelligent AI agents. It models intelligence as a dynamic state machine where agents can move freely between five agent states: **Perception**, **Analysis**, **Network**, **Decision**, and **Act**.",
-  "main": "index.js",
+  "description": "PANDA is a lightweight TypeScript agent framework built around a dynamic Perception, Analysis, Network, Decision, and Action loop.",
+  "private": true,
+  "type": "module",
   "scripts": {
+    "dev": "pnpm --parallel --filter @panda/daemon --filter @panda/dashboard dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @panda/daemon start",
+    "doctor": "pnpm --filter @panda/cli panda doctor",
     "generate:wallets": "node scripts/generate-wallets.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "pnpm -r test",
+    "typecheck": "pnpm build && pnpm -r typecheck"
   },
-  "keywords": [],
+  "keywords": [
+    "agents",
+    "langgraph",
+    "framework",
+    "typescript"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@polkadot/util-crypto": "^14.0.3",
     "@polkadot/wasm-crypto": "^7.5.4",
@@ -23,5 +34,10 @@
     "ripple-keypairs": "^3.0.0",
     "tiny-secp256k1": "^2.2.4",
     "tronweb": "^6.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }
