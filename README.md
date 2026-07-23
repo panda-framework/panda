@@ -1,8 +1,8 @@
 # PANDA Framework
 
-PANDA is an open-source cognitive framework for building intelligent AI agents.
+PANDA is an open-source agent framework for building intelligent AI agents.
 It models intelligence as a dynamic state machine where agents can move freely
-between five cognitive states: **Perception**, **Analysis**, **Network**,
+between five agent states: **Perception**, **Analysis**, **Network**,
 **Decision**, and **Act**.
 
 Instead of forcing agents through a rigid workflow, PANDA focuses on how
@@ -16,7 +16,7 @@ intelligent systems should think, reason, collaborate, decide, and execute.
   and form plans.
 - **Network**: Collaborate with humans, other agents, tools, vector databases,
   documentation, and external systems.
-- **Decision**: Select the next best action, tool, workflow, or cognitive state.
+- **Decision**: Select the next best action, tool, workflow, or agent state.
 - **Act**: Execute work such as API calls, code changes, emails, database
   updates, automations, or physical actions.
 
@@ -43,7 +43,7 @@ pure procedural execution.
 
 PANDA is designed to be:
 
-- **Modular**: Each cognitive state can be implemented, extended, or replaced.
+- **Modular**: Each agent state can be implemented, extended, or replaced.
 - **Observable**: Agent behavior should be inspectable and traceable.
 - **Explainable**: State transitions and decisions should be understandable.
 - **Composable**: PANDA agents should integrate cleanly with tools, runtimes,
@@ -86,11 +86,10 @@ Planned areas of development include:
 
 ## Long-Term Vision
 
-The goal of PANDA is to become a standard cognitive architecture for intelligent
+The goal of PANDA is to become a standard agent architecture for intelligent
 agents, similar to how MVC became a standard architecture for web applications.
 
 ## Guiding Principle
 
 Perceive deeply. Analyze clearly. Network broadly. Decide wisely. Act
 powerfully.
-
