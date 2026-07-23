@@ -1,39 +1,64 @@
 # PANDA Agent Framework
 
-PANDA is an open-source agent framework for building intelligent AI agents.
-It models intelligence as a dynamic state machine where agents can move freely
-between five agent states: **Perception**, **Analysis**, **Network**,
-**Decision**, and **Act**.
+PANDA is an open-source intelligence runtime for building event-driven agents,
+automation systems, robotics controllers, monitoring tools, and multimodal
+applications. It treats every input as an **observation** and every output as an
+**action**. Connectors observe the outside world, analyzers react to observation
+types, and the scheduler controls execution.
 
-Instead of forcing agents through a rigid workflow, PANDA focuses on how
-intelligent systems should think, reason, collaborate, decide, and execute.
+The LLM is one reasoning component in this architecture. It is not the
+orchestrator.
+
+Static project homepage: [`index.html`](./index.html)
 
 ## What PANDA Means
 
 - **Perception**: Gather information from users, tools, APIs, sensors, memory,
   and the surrounding environment.
-- **Analysis**: Understand context, reason through options, evaluate evidence,
-  and form plans.
-- **Network**: Collaborate with humans, other agents, tools, vector databases,
-  documentation, and external systems.
+- **Understanding**: Interpret context, classify observations, and derive
+  meaning.
+- **Memory**: Store, summarize, or discard observation history.
+- **Planning**: Form candidate paths and execution strategies.
 - **Decision**: Select the next best action, tool, workflow, or agent state.
-- **Act**: Execute work such as API calls, code changes, emails, database
-  updates, automations, or physical actions.
+- **Execution**: Dispatch actions through connectors.
+- **Reflection**: Evaluate results and emit follow-up observations.
 
 ## Core Idea
 
-PANDA is not a linear loop or fixed pipeline. Every state can transition directly
-to every other state, allowing agents to adapt their reasoning path to the
-current context.
+PANDA is not a linear loop or fixed pipeline. Every state can transition to any
+other state, and transitions are represented as observations rather than direct
+function calls. The scheduler owns execution flow by dispatching observations to
+interested modules.
 
-Example flows:
+The runtime starts with an in-memory observation bus and is designed so Redis
+Streams, NATS, Kafka, RabbitMQ, or another durable queue can replace it later.
 
 ```text
-Perception -> Network -> Analysis -> Decision -> Act
+                    +----------------+
+                    | ObservationBus |
+                    +----------------+
+                       ^          |
+   observations        |          | dispatch
+ +------------+        |          v
+ | Connectors | -----> |    +-----------+       +-----------+
+ +------------+             | Scheduler | ----> | Analyzers |
+      ^                     +-----------+       +-----------+
+      | actions                   |                 |
+      |                           v                 | new observations
+ +----------------+        +-------------+          |
+ | ActionDispatcher | <--- | State Engine | <-------+
+ +----------------+        +-------------+
+          |
+          v
+    output connectors
 ```
 
 ```text
-Perception -> Act -> Perception -> Decision
+Perception -> Execution -> Memory
+```
+
+```text
+Reflection -> Planning -> Decision -> Perception
 ```
 
 This fully connected state-machine model supports adaptive reasoning instead of
@@ -51,6 +76,8 @@ PANDA is designed to be:
 - **Deterministic when needed**: Workflows can be constrained for reliability.
 - **Autonomous when possible**: Agents can decide and act with appropriate
   flexibility.
+- **Connector-first**: Filesystems, browsers, GitHub, Slack, cameras, sensors,
+  databases, REST APIs, BLE, MQTT, and other systems use one connector shape.
 
 ## Model Agnostic
 
@@ -104,10 +131,43 @@ panda/
 - `apps/cli`: `panda` command surface powered by `commander`.
 - `apps/daemon`: local Fastify daemon with HTTP API and WebSocket events.
 - `apps/dashboard`: React, Vite, TypeScript, Tailwind dashboard.
-- `packages/core`: agent sessions, state helpers, memory store, config.
-- `packages/graph`: PANDA loop implemented as LangGraph nodes.
-- `packages/sdk`: typed client for daemon HTTP APIs.
-- `packages/shared`: shared types, IDs, timestamps, and logger utilities.
+- `packages/core`: observation bus, scheduler, action dispatcher, connector
+  base classes, memory subscriber, state transition engine, sessions, config.
+- `packages/graph`: compatibility wrapper that runs through the event-driven
+  runtime instead of a fixed reasoning loop.
+- `packages/sdk`: typed daemon client plus public observation/action types.
+- `packages/shared`: shared schemas, IDs, timestamps, and logger utilities.
+
+### Runtime Concepts
+
+- `PandaObservation`: id, timestamp, source, type, priority, confidence, payload,
+  correlation id, and metadata.
+- `PandaAction`: id, timestamp, target connector, type, payload, correlation id,
+  and metadata.
+- `InMemoryObservationBus`: queue-backed bus for local development.
+- `PandaScheduler`: dispatches observations to analyzers by observation type.
+- `ActionDispatcher`: routes actions to the connector that owns the target.
+- `BaseConnector`: common interface with `start`, `stop`, `subscribe`,
+  `publish`, `health`, `metadata`, and optional `execute`.
+- `ObservationMemory`: subscribes to observations and decides whether to store,
+  summarize, or discard them.
+- `StateTransitionEngine`: applies transition events without enforcing a fixed
+  loop.
+
+### Connector Example
+
+```ts
+import { FilesystemConnector, PandaRuntime } from "@panda/core";
+
+const runtime = new PandaRuntime();
+const filesystem = new FilesystemConnector(runtime.bus);
+
+runtime.registerConnector(filesystem);
+
+await filesystem.start();
+await filesystem.observeChange("README.md", "updated");
+await runtime.bus.drain();
+```
 
 ### Development
 
@@ -133,6 +193,12 @@ Run type checks:
 
 ```bash
 pnpm typecheck
+```
+
+Run tests:
+
+```bash
+pnpm test
 ```
 
 Start the built daemon:
@@ -200,5 +266,5 @@ agents, similar to how MVC became a standard architecture for web applications.
 
 ## Guiding Principle
 
-Perceive deeply. Analyze clearly. Network broadly. Decide wisely. Act
-powerfully.
+Observe continuously. Schedule deliberately. Decide clearly. Act through
+connectors. Reflect with context.

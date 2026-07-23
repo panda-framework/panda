@@ -16,7 +16,6 @@
     "test": "pnpm typecheck"
   },
   "dependencies": {
-    "@langchain/langgraph": "^0.2.73",
     "@panda/core": "workspace:*",
     "@panda/shared": "workspace:*"
   }

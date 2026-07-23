@@ -10,12 +10,23 @@ This scaffold follows the initial specification in
 - Fastify daemon with local HTTP API.
 - WebSocket event stream at `/events`.
 - In-memory agent session store.
-- LangGraph.js PANDA loop nodes:
+- Event-driven runtime primitives:
+  - In-memory observation bus
+  - Scheduler
+  - Action dispatcher
+  - Connector base API
+  - Filesystem connector
+  - GitHub connector
+  - Observation memory subscriber
+  - State transition engine
+- PANDA state model:
   - Perception
-  - Analysis
-  - Network
+  - Understanding
+  - Memory
+  - Planning
   - Decision
-  - Action
+  - Execution
+  - Reflection
 - React/Vite/Tailwind dashboard with the required pages:
   - Home
   - Agent Console

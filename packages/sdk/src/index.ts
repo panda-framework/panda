@@ -1,5 +1,13 @@
 import type { PandaRunInput, PandaRunResult, PandaSession } from "@panda/shared";
 
+export type {
+  PandaAction,
+  PandaActionResult,
+  PandaObservation,
+  ObservationPriority,
+  PandaStateName,
+} from "@panda/shared";
+
 export interface PandaClientOptions {
   baseUrl?: string;
 }

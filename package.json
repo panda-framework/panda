@@ -1,7 +1,7 @@
 {
   "name": "panda",
   "version": "1.0.0",
-  "description": "PANDA is a lightweight TypeScript agent framework built around a dynamic Perception, Analysis, Network, Decision, and Action loop.",
+  "description": "PANDA is a TypeScript intelligence runtime built around observations, actions, connectors, and scheduler-driven state transitions.",
   "private": true,
   "type": "module",
   "scripts": {

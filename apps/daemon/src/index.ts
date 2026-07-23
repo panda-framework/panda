@@ -6,7 +6,10 @@ import {
   appendMessage,
   createSession,
   defaultPandaConfig,
+  FilesystemConnector,
+  GitHubConnector,
   InMemoryPandaStore,
+  PandaRuntime,
 } from "@panda/core";
 import { runPandaLoop } from "@panda/graph";
 import {
@@ -19,6 +22,9 @@ import {
 const logger = createLogger("daemon");
 const config = defaultPandaConfig();
 const store = new InMemoryPandaStore();
+const runtime = new PandaRuntime();
+runtime.registerConnector(new FilesystemConnector(runtime.bus));
+runtime.registerConnector(new GitHubConnector(runtime.bus));
 const clients = new Set<{ send: (payload: string) => void }>();
 
 const runSchema = z.object({
@@ -78,6 +84,16 @@ app.post("/runs", async (request, reply) => {
   publish("run.started", session.id, { input: parsed.data.input });
 
   try {
+    await runtime.observe({
+      source: "daemon",
+      type: "user.input",
+      payload: {
+        sessionId: session.id,
+        input: parsed.data.input,
+      },
+      correlationId: session.id,
+    });
+
     const result = await runPandaLoop({
       session,
       input: parsed.data.input,
