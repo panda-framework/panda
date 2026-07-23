@@ -1,0 +1,27 @@
+{
+  "name": "panda",
+  "version": "1.0.0",
+  "description": "PANDA is an open-source agent framework for building intelligent AI agents. It models intelligence as a dynamic state machine where agents can move freely between five agent states: **Perception**, **Analysis**, **Network**, **Decision**, and **Act**.",
+  "main": "index.js",
+  "scripts": {
+    "generate:wallets": "node scripts/generate-wallets.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@polkadot/util-crypto": "^14.0.3",
+    "@polkadot/wasm-crypto": "^7.5.4",
+    "@solana/web3.js": "^1.98.4",
+    "bech32": "^2.0.0",
+    "bip32": "^5.0.1",
+    "bip39": "^3.1.0",
+    "bitcoinjs-lib": "^7.0.1",
+    "ed25519-hd-key": "^2.0.0",
+    "ethers": "^6.17.0",
+    "ripple-keypairs": "^3.0.0",
+    "tiny-secp256k1": "^2.2.4",
+    "tronweb": "^6.4.0"
+  }
+}

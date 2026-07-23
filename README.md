@@ -63,12 +63,6 @@ PANDA is not tied to a single AI provider or model family. It can support:
 - Custom reasoning engines
 - Systems that do not require an LLM
 
-## Relationship to Other Projects
-
-- **PANDA** defines how agents think.
-- **OpenClaw** is a runtime capable of executing PANDA agents.
-- **Athena.live** is the first commercial product using PANDA.
-
 ## Future Direction
 
 Planned areas of development include:
@@ -83,6 +77,33 @@ Planned areas of development include:
 - Multi-agent collaboration
 - Human approvals
 - Distributed execution
+
+<!-- donations:start -->
+## Donations
+
+Donation seed phrases are generated locally by running:
+
+```bash
+npm run generate:wallets
+```
+
+The generated recovery phrases are saved in `generated_wallets/`, which is
+ignored by git. Only public donation addresses are listed here.
+
+| Chain | Address |
+| --- | --- |
+| Bitcoin | `bc1qtlywhsj3rvmvrz9zuh2l3czncd7mwpmtknjd83` |
+| Ethereum / EVM | `0x88C8183cDDAA5e848Ec222F42771Ba055e9f9fb7` |
+| Solana | `Ab8qd9GriUraYdMfpYSbUtfXoqiNSqdA5xrBM9rn7Tku` |
+| Litecoin | `ltc1qt7gyfk6tam5zvd6pej9qcat2ep80w3xykue8y7` |
+| Dogecoin | `DRKDnV536QVdYUAeCnFewWjfztUkFEwcNr` |
+| Tron | `THiYW7Fh1CtpbTwixcDNYR6B1Si6761Uoy` |
+| XRP Ledger | `rKS5gBGerGRvFEoBWhUcD2fazLYnBcqgWK` |
+| Cosmos | `cosmos10mdk53s6e377pmd7frcrd5t52qndhpuc5f0zfn` |
+| Polkadot | `14RJwVeSWmW3a5Rk1R1Am89nKYan1B25MuGnKozR395s9Ftk` |
+
+The Ethereum / EVM address can also receive assets on Ethereum, BNB Smart Chain, Polygon, Arbitrum, Optimism, Base, Avalanche C-Chain, and Fantom when using the correct network.
+<!-- donations:end -->
 
 ## Long-Term Vision
 
