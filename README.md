@@ -1,4 +1,4 @@
-# PANDA Framework
+# PANDA Agent Framework
 
 PANDA is an open-source agent framework for building intelligent AI agents.
 It models intelligence as a dynamic state machine where agents can move freely
