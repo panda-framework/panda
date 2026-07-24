@@ -27,10 +27,6 @@
         box-sizing: border-box;
       }
 
-      html {
-        scroll-padding-top: var(--anchor-offset);
-      }
-
       body {
         margin: 0;
         background: var(--bg);
@@ -48,7 +44,7 @@
       }
 
       [id] {
-        scroll-margin-top: var(--anchor-offset);
+        scroll-margin-top: calc(var(--anchor-offset) - 48px);
       }
 
       .shell {
