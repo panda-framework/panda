@@ -184,7 +184,7 @@
 
       .flow {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
         gap: 10px;
         margin-top: 18px;
       }
@@ -200,6 +200,12 @@
         font-weight: 750;
         text-align: center;
         padding: 8px;
+      }
+
+      .diagram-note {
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 0.92rem;
       }
 
       section {
@@ -380,16 +386,23 @@
           </div>
 
           <div class="diagram" aria-label="PANDA runtime model">
-            <div class="node">Connectors observe the outside world</div>
-            <div class="node">ObservationBus receives every input</div>
-            <div class="node">Scheduler dispatches observations</div>
-            <div class="node">Analyzers and state engine emit actions</div>
-            <div class="node">ActionDispatcher routes outputs</div>
+            <div class="node">Perception turns outside signals into observations</div>
+            <div class="node">Analysis interprets observations and state</div>
+            <div class="node">Network shares context across modules and systems</div>
+            <div class="node">Decision selects the next intent or transition</div>
+            <div class="node">Action executes outputs through connectors</div>
             <div class="flow">
               <span>Perception</span>
+              <span>Analysis</span>
+              <span>Network</span>
               <span>Decision</span>
-              <span>Execution</span>
+              <span>Action</span>
             </div>
+            <p class="diagram-note">
+              PANDA does not require a fixed linear loop: a system can jump
+              from any state to any other state, or execute states in parallel
+              when the runtime schedules them that way.
+            </p>
           </div>
         </div>
       </section>
