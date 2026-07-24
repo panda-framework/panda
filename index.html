@@ -20,10 +20,15 @@
         --accent-dark: #0b5e4c;
         --warning: #f2b84b;
         --code: #edf3f0;
+        --anchor-offset: 92px;
       }
 
       * {
         box-sizing: border-box;
+      }
+
+      html {
+        scroll-padding-top: var(--anchor-offset);
       }
 
       body {
@@ -40,6 +45,10 @@
         color: var(--accent-dark);
         text-decoration-thickness: 0.08em;
         text-underline-offset: 0.18em;
+      }
+
+      [id] {
+        scroll-margin-top: var(--anchor-offset);
       }
 
       .shell {
@@ -389,7 +398,7 @@
             <div class="node">Perception turns outside signals into observations</div>
             <div class="node">Analysis interprets observations and state</div>
             <div class="node">Network shares context across modules and systems</div>
-            <div class="node">Decision selects the next intent or transition</div>
+            <div class="node">Decision selects the next action</div>
             <div class="node">Action executes outputs through connectors</div>
             <div class="flow">
               <span>Perception</span>
@@ -547,5 +556,26 @@
         act powerfully.
       </div>
     </footer>
+    <script>
+      const header = document.querySelector("header");
+
+      function updateAnchorOffset() {
+        if (!header) {
+          return;
+        }
+
+        document.documentElement.style.setProperty(
+          "--anchor-offset",
+          `${header.offsetHeight + 24}px`,
+        );
+      }
+
+      updateAnchorOffset();
+      window.addEventListener("resize", updateAnchorOffset);
+
+      if (header && "ResizeObserver" in window) {
+        new ResizeObserver(updateAnchorOffset).observe(header);
+      }
+    </script>
   </body>
 </html>
