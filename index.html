@@ -8,6 +8,15 @@
       content="PANDA is an open-source intelligence runtime for building event-driven agents, automation systems, robotics controllers, monitoring tools, and multimodal applications."
     />
     <title>PANDA Agent Framework</title>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-D2S6M2HBL2"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-D2S6M2HBL2');
+    </script>
     <style>
       :root {
         color-scheme: light;
@@ -184,7 +193,11 @@
         padding: 13px 14px;
         margin: 10px 0;
         background: #fbfcfb;
-        font-weight: 750;
+        font-weight: 500;
+      }
+
+      .node strong {
+        font-weight: 800;
       }
 
       .flow {
@@ -301,6 +314,11 @@
         color: var(--muted);
       }
 
+      .copyright {
+        margin: 12px 0 0;
+        font-size: 0.9rem;
+      }
+
       @media (max-width: 820px) {
         .hero {
           padding-top: 42px;
@@ -371,12 +389,12 @@
       <section class="hero">
         <div class="shell hero-grid">
           <div>
-            <p class="eyebrow">Open-source intelligence runtime</p>
-            <h1>PANDA Agent Framework</h1>
+            <p class="eyebrow">open-source framework for Autonomy</p>
+            <h1>PANDA Framework</h1>
             <p class="lead">
               PANDA is an open-source framework that provides the structure and
-              foundation for autonomous systems, organized into Perception,
-              Analysis, Network, Decision, and Action.
+              foundation for AI Agents, organized into Perception, Analysis,
+              Network, Decision, and Action.
             </p>
             <div class="actions">
               <a
@@ -391,23 +409,27 @@
           </div>
 
           <div class="diagram" aria-label="PANDA runtime model">
-            <div class="node">Perception turns outside signals into observations</div>
-            <div class="node">Analysis interprets observations and state</div>
-            <div class="node">Network shares context across modules and systems</div>
-            <div class="node">Decision selects the next action</div>
-            <div class="node">Action executes outputs through connectors</div>
-            <div class="flow">
-              <span>Perception</span>
-              <span>Analysis</span>
-              <span>Network</span>
-              <span>Decision</span>
-              <span>Action</span>
+            <div class="node">
+              <strong>Perception</strong> - continuously acquires information
+              from the environment and internal sources.
             </div>
-            <p class="diagram-note">
-              PANDA does not require a fixed linear loop: a system can jump
-              from any state to any other state, or execute states in parallel
-              when the runtime schedules them that way.
-            </p>
+            <div class="node">
+              <strong>Analysis</strong> &mdash; standardizes, classifies,
+              evaluates, and predicts information before sharing it with the
+              Network.
+            </div>
+            <div class="node">
+              <strong>Network</strong> &mdash; Exchanges context and knowledge
+              to expand available options with network for decision options.
+            </div>
+            <div class="node">
+              <strong>Decision</strong> &mdash; Evaluates decisions, possible
+              outcomes and goals proceeds to select next action(s).
+            </div>
+            <div class="node">
+              <strong>Action</strong> &mdash; Executes the selected actions
+              through available capabilities.
+            </div>
           </div>
         </div>
       </section>
@@ -417,9 +439,7 @@
           <h2>Built Around Observations And Actions</h2>
           <p class="section-intro">
             PANDA treats every input as an observation and every output as an
-            action. The LLM can participate as one reasoning component, but it
-            is not the orchestrator. The scheduler owns execution flow by
-            dispatching observations to interested modules.
+            action.
           </p>
           <div class="grid">
             <article class="card">
@@ -550,6 +570,7 @@
         PANDA aims to become a standard architecture for intelligent agents:
         perceive deeply, analyze clearly, network broadly, decide wisely, and
         act powerfully.
+        <p class="copyright">&copy; 2026 Armen Merikyan. All rights reserved.</p>
       </div>
     </footer>
     <script>
