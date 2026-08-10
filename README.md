@@ -266,6 +266,14 @@ ignored by git. Only public donation addresses are listed here.
 The Ethereum / EVM address can also receive assets on Ethereum, BNB Smart Chain, Polygon, Arbitrum, Optimism, Base, Avalanche C-Chain, and Fantom when using the correct network.
 <!-- donations:end -->
 
+## License
+
+PANDA source code and executable examples are available under the
+[MIT License](./LICENSE.md#software-license-mit). The original prose, diagrams,
+and other non-code content in this README and `docs/` are available under
+[Creative Commons Attribution 4.0 International](./docs/license.md). See the
+[complete licensing notice](./LICENSE.md) for scope and exclusions.
+
 ## Long-Term Vision
 
 The goal of PANDA is to become a standard agent architecture for intelligent
