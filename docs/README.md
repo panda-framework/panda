@@ -1,5 +1,10 @@
 # PANDA Documentation
 
+## Getting Started
+
+- [Developer Onboarding](developer-onboarding.md) — local setup, architecture
+  guardrails, development phases, validation, and completion workflow
+
 ## Requirements
 
 - [PANDA Framework Software Requirements](requirements.md) — normative
@@ -16,5 +21,5 @@
 - [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md) — approved Phase 0 fixtures, sandbox boundary, trace contract, and acceptance criteria
 - [Implementation Progress](progress.md) — completed phases, validation results, and remaining work
 - [Phase 0 Plan](plans/phase-0.md) — scope, tasks, acceptance criteria, risks, and completion record for the v0.1 scope freeze
-- [GitHub Push Workflow](github-push-workflow.md) — credential-safe SSH/token setup, detailed commit messages, validation, pushing, and completion reports
+- [GitHub Pull Request Workflow](github-push-workflow.md) — credential-safe validation, commit, push, review, merge, and end-to-end publication requirements
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
