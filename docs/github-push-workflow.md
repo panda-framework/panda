@@ -1,4 +1,4 @@
-# GitHub Push Workflow
+# GitHub Pull Request Workflow
 
 **Status:** Repository workflow
 
@@ -8,10 +8,10 @@
 
 ## 1. Purpose
 
-Use this workflow whenever repository changes are committed and pushed to
-GitHub. It keeps the scope explicit, protects credentials, requires useful
-commit context, and ensures the final report describes both completed work and
-recommended next steps.
+Use this workflow whenever repository changes are committed, pushed, reviewed
+in a pull request, and merged into `main`. It keeps the scope explicit,
+protects credentials, requires useful commit context, and ensures the final
+report describes both completed work and recommended next steps.
 
 When a task explicitly requires staying on the current branch, do not create a
 new branch. Confirm the branch before committing and push that branch directly.
@@ -71,7 +71,7 @@ Host github-panda
 
 Only the public key is uploaded to GitHub.
 
-## 4. Alternative authentication: token from `.env`
+## 4. GitHub CLI authentication from `.env`
 
 The local `.env` may define:
 
@@ -81,8 +81,8 @@ GITHUB_ACCESS_TOKEN=replace_with_a_local_token
 
 Do not place the real value in documentation or `.env.example`.
 
-GitHub CLI recognizes `GH_TOKEN` directly. Load the repository variable into
-the current shell without printing it:
+GitHub CLI recognizes `GH_TOKEN` directly. For a temporary session, load the
+repository variable into the current shell without printing it:
 
 ```bash
 set -a
@@ -98,6 +98,27 @@ repository-local credential. Never run commands that echo either token.
 
 For Git transport, prefer SSH even when a token is available. Use the token for
 GitHub API or `gh` operations that SSH does not cover.
+
+### Register the token as a GitHub CLI profile
+
+For a persistent CLI login, register `GITHUB_ACCESS_TOKEN` once. This stores the
+credential in the operating-system keyring when one is available and configures
+the GitHub CLI profile to keep using SSH for Git operations:
+
+```bash
+set -a
+source ./.env
+set +a
+printf '%s\n' "$GITHUB_ACCESS_TOKEN" | \
+  env -u GH_TOKEN -u GITHUB_TOKEN \
+  gh auth login --hostname github.com --git-protocol ssh --with-token
+unset GITHUB_ACCESS_TOKEN
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth status
+```
+
+The final command must identify the expected GitHub account, report it as
+active, and show `ssh` as the Git operations protocol. Do not pass the token on
+the command line, write it into Git configuration, or print it in logs.
 
 ## 5. Pre-commit scope check
 
@@ -187,34 +208,109 @@ git push origin "$(git branch --show-current)"
 Use `-u` only when the branch does not already have an upstream. Never create a
 new branch when the task explicitly requires the current branch.
 
-## 9. Post-push verification
+## 9. Create the pull request
 
-After pushing:
+Create a pull request from the pushed branch into `main`. First check whether
+the branch already has an open pull request so duplicate PRs are not created:
 
 ```bash
-git status -sb
-git log -1 --oneline
-git ls-remote --heads origin "$(git branch --show-current)"
+branch="$(git branch --show-current)"
+gh pr list --head "$branch" --base main --state open
+```
+
+If no pull request exists, write a useful description to a temporary file and
+create a ready-for-review PR:
+
+```bash
+pr_body="$(mktemp)"
+# Edit "$pr_body" with: what changed, why, user impact, and validation.
+gh pr create \
+  --base main \
+  --head "$branch" \
+  --title "Concise description of the complete change" \
+  --body-file "$pr_body"
+rm "$pr_body"
+```
+
+Confirm the PR targets `main` and contains only the intended commits and files:
+
+```bash
+gh pr view --json number,url,baseRefName,headRefName,state,isDraft
+gh pr diff --name-only
+```
+
+## 10. Process review and checks
+
+Do not merge immediately after opening the pull request. Process it through the
+repository's review and CI gates:
+
+```bash
+gh pr checks --watch
+gh pr view --json reviewDecision,mergeStateStatus,mergeable
+```
+
+If checks fail, inspect the failing run, fix the cause on the same branch, run
+the relevant local validation, commit, and push again. If review feedback is
+actionable, address it with new commits and reply to or resolve the applicable
+review threads. Do not approve your own pull request or bypass a required
+review. Repeat the checks until required CI passes and branch protection allows
+the merge.
+
+## 11. Merge into `main`
+
+Immediately before merging, verify the PR is open, targets `main`, is not a
+draft, and is in a mergeable state:
+
+```bash
+gh pr view --json number,url,state,isDraft,baseRefName,reviewDecision,mergeStateStatus,mergeable
+```
+
+Merge using the repository's required strategy. When no strategy is mandated,
+prefer squash merge so the feature branch becomes one focused commit on
+`main`:
+
+```bash
+gh pr merge --squash --delete-branch
+```
+
+If GitHub reports that requirements are still pending, leave the PR open and
+report the exact gate. Do not use an admin bypass unless the user explicitly
+authorizes bypassing branch protection.
+
+## 12. Post-merge verification
+
+After merging:
+
+```bash
+gh pr view --json state,mergedAt,mergeCommit,url
+git fetch origin main
+git log -1 --oneline origin/main
 ```
 
 Confirm that:
 
-- the local working tree is clean;
-- the local and remote branch point to the new commit;
-- the intended files are included in the commit;
-- no credential or unrelated file was committed.
+- the pull request state is `MERGED`;
+- the merge commit is present on `origin/main`;
+- only the intended files were included;
+- no credential or unrelated file was committed;
+- any intentionally retained local changes are still present and untouched.
 
-## 10. Required completion report
+Do not switch branches, pull, or delete a local branch while unrelated local
+changes are present. The remote branch may be deleted by the merge command
+without disturbing those local changes.
+
+## 13. Required completion report
 
 Every completed push should report:
 
 ### What was done
 
-- branch pushed;
+- source branch and pull request URL;
 - commit hash and subject;
 - files or functional areas changed;
 - validation performed;
-- remote synchronization result.
+- review and CI result;
+- merge commit on `main` and remote synchronization result.
 
 ### Next-step suggestions
 
@@ -225,19 +321,19 @@ Every completed push should report:
 Example:
 
 ```text
-Pushed main at abc1234.
+Merged PR #123 into main at abc1234.
 
 What was done:
 - Added the PANDA v0.1 implementation plan and GitHub workflow.
-- Updated the documentation index.
-- Verified the diff and confirmed the remote commit.
+- Passed required checks and completed review.
+- Squash-merged the PR and verified the commit on origin/main.
 
 Next steps:
 - Approve the Phase 0 acceptance contract.
 - Start Phase 1 with additive shared contracts and unit tests.
 ```
 
-## 11. Prohibited operations
+## 14. Prohibited operations
 
 Unless a user explicitly authorizes them, do not:
 
@@ -247,4 +343,6 @@ Unless a user explicitly authorizes them, do not:
 - reset or discard user changes;
 - stage unrelated files;
 - commit `.env`, access tokens, or private keys;
-- treat a successful push as evidence that build or runtime checks passed.
+- treat a successful push as evidence that build or runtime checks passed;
+- merge a draft PR or a PR with failed required checks;
+- bypass branch protection without explicit authorization.
