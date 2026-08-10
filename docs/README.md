@@ -23,6 +23,7 @@
 - [Phase 0 Plan](plans/phase-0.md) — scope, tasks, acceptance criteria, risks, and completion record for the v0.1 scope freeze
 - [Phase 1 Plan](plans/phase-1.md) — additive canonical contracts, identity model, tests, and completion record
 - [Phase 2 Plan](plans/phase-2.md) — execution-scoped in-memory state, causal trace ordering, isolation tests, and completion record
+- [Phase 3 Plan](plans/phase-3.md) — capability registry, execution-scoped dynamic coordination, transition tracing, bounds, and acceptance tests
 - [GitHub Pull Request Workflow](github-push-workflow.md) — credential-safe validation, commit, push, review, merge, and end-to-end publication requirements
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
 
