@@ -24,3 +24,7 @@
 - [Phase 1 Plan](plans/phase-1.md) — additive canonical contracts, identity model, tests, and completion record
 - [GitHub Pull Request Workflow](github-push-workflow.md) — credential-safe validation, commit, push, review, merge, and end-to-end publication requirements
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
+
+## Project Operations
+
+- [Project Expenses](project-expenses.md) — current recurring costs, local-first hosting baseline, potential future expenses, and spending controls
