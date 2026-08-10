@@ -16,6 +16,26 @@ report describes both completed work and recommended next steps.
 When a task explicitly requires staying on the current branch, do not create a
 new branch. Confirm the branch before committing and push that branch directly.
 
+### Publication contract
+
+When the user explicitly asks to publish, ship, or merge changes, execute this
+workflow through its remote steps. Do not stop after describing the commands,
+creating a local commit, pushing the branch, or opening the pull request.
+
+Unless the user requests a narrower outcome, publication is complete only when:
+
+- the intended changes are committed and pushed;
+- a ready-for-review pull request targets `main`;
+- required review and CI gates pass;
+- the pull request is merged; and
+- the resulting commit is verified on `origin/main`.
+
+Continue processing actionable failures and review feedback on the same branch
+until publication succeeds. Stop only for a gate that cannot be resolved with
+the available credentials or repository permissions, and report that exact
+gate and the remote state already reached. Do not leave an explicitly requested
+push, pull request, or merge merely as a suggested next step.
+
 ## 2. Credential safety
 
 Never commit any of the following:
@@ -301,7 +321,7 @@ without disturbing those local changes.
 
 ## 13. Required completion report
 
-Every completed push should report:
+Every completed publication should report:
 
 ### What was done
 
