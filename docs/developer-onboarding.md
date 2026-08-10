@@ -535,7 +535,9 @@ new evidence changes an accepted design or dependency:
 Follow the [GitHub Pull Request Workflow](github-push-workflow.md) only when the
 task includes committing or publication. Inspect the branch and working tree,
 stage only intended paths, keep secrets and generated output out of Git, record
-validation, and process required CI and review gates without bypassing them.
+validation, process required CI and review gates without bypassing them, and
+delete the merged feature branch locally and remotely only after the workflow's
+post-merge guards pass.
 
 ## 11. Architectural guardrails
 

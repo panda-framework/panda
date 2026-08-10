@@ -58,7 +58,9 @@ Unless the user requests a narrower outcome, publication is complete only when:
 - a ready-for-review pull request targets `main`;
 - required review and CI gates pass;
 - the pull request is merged; and
-- the resulting commit is verified on `origin/main`.
+- the resulting commit is verified on `origin/main`; and
+- the merged feature branch is deleted locally and remotely using the guarded
+  post-merge cleanup in Section 13.
 
 Continue processing actionable failures and review feedback on the same branch
 until publication succeeds. Stop only for a gate that cannot be resolved with
@@ -375,7 +377,63 @@ changes are present. Do not let a merge command delete a branch automatically;
 any later feature-branch cleanup must verify explicitly that its target is not
 `main`.
 
-## 13. Required completion report
+## 13. Delete the merged feature branch
+
+Clean up the feature branch only after Section 12 proves that the pull request
+is merged and the result is present on `origin/main`. Keep branch deletion
+separate from the merge so every destructive command has an explicit,
+inspectable non-`main` target.
+
+First capture and validate the merged pull request's source branch and commit.
+These guards also prevent deletion when the local branch has commits that were
+not pushed to the pull request:
+
+```bash
+branch="$(gh pr view --json headRefName --jq .headRefName)"
+head_oid="$(gh pr view --json headRefOid --jq .headRefOid)"
+test "$(gh pr view --json state --jq .state)" = "MERGED"
+test -n "$branch" && test "$branch" != "main"
+test -z "$(git status --porcelain)"
+git fetch origin main "$branch"
+test "$(git rev-parse "$branch")" = "$head_oid"
+test "$(git rev-parse "origin/$branch")" = "$head_oid"
+git ls-remote --exit-code --heads origin refs/heads/main
+```
+
+Delete only that validated remote feature branch, then update local `main` and
+delete the corresponding local branch:
+
+```bash
+git push origin --delete "$branch"
+git switch main
+git pull --ff-only origin main
+git branch -d "$branch"
+```
+
+A squash merge does not make the original feature tip an ancestor of `main`, so
+the final `git branch -d` may refuse even though the pull request is merged. If
+and only if every guard above passed and `git branch -d` reports that exact
+not-fully-merged condition, delete the already-verified local branch with:
+
+```bash
+git branch -D "$branch"
+```
+
+Finally, prove that the feature branch is gone while `main` remains intact:
+
+```bash
+test -z "$(git ls-remote --heads origin "refs/heads/$branch")"
+test -z "$(git branch --list "$branch")"
+git ls-remote --exit-code --heads origin refs/heads/main
+test "$(git branch --show-current)" = "main"
+```
+
+If the remote feature branch is already absent, do not treat that as permission
+to delete anything else. Skip the remote deletion, retain the same non-`main`
+guards, and verify the absent branch explicitly. Never broaden a branch name,
+use a wildcard, or substitute the default branch during cleanup.
+
+## 14. Required completion report
 
 Every completed publication should report:
 
@@ -386,7 +444,8 @@ Every completed publication should report:
 - files or functional areas changed;
 - validation performed;
 - review and CI result;
-- merge commit on `main` and remote synchronization result.
+- merge commit on `main` and remote synchronization result; and
+- local and remote feature-branch cleanup result.
 
 ### Next-step suggestions
 
@@ -403,13 +462,14 @@ What was done:
 - Added the PANDA v0.1 implementation plan and GitHub workflow.
 - Passed required checks and completed review.
 - Squash-merged the PR and verified the commit on origin/main.
+- Deleted the merged feature branch locally and remotely, then reverified main.
 
 Next steps:
 - Approve the Phase 0 acceptance contract.
 - Start Phase 1 with additive shared contracts and unit tests.
 ```
 
-## 14. Prohibited operations
+## 15. Prohibited operations
 
 Deleting local or remote `main` is always prohibited and can never be
 authorized. The same unconditional ban applies to any equivalent UI, CLI, API,
