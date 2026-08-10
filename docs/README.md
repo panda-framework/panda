@@ -12,4 +12,6 @@
 
 ## Implementation Notes
 
+- [PANDA v0.1 Implementation Plan](v0.1-implementation-plan.md) — dependency-ordered phases, deliverables, and release gates for the first closed-loop execution
+- [GitHub Push Workflow](github-push-workflow.md) — credential-safe SSH/token setup, detailed commit messages, validation, pushing, and completion reports
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
