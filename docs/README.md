@@ -4,6 +4,8 @@
 
 - [Developer Onboarding](developer-onboarding.md) — local setup, architecture
   guardrails, development phases, validation, and completion workflow
+- [Documentation Plan](documentation-plan.md) — prioritized documentation
+  backlog, sequencing, maintenance triggers, and completion standards
 
 ## Requirements
 
