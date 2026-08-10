@@ -15,6 +15,7 @@ import {
 
 export * from "./execution-store.js";
 export * from "./coordinator.js";
+export * from "./deterministic-capabilities.js";
 
 export interface AgentRunContext {
   session: PandaSession;
