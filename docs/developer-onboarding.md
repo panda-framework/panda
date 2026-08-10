@@ -12,9 +12,10 @@ architecture, plans, and progress records.
 ## 1. Current project status
 
 PANDA is a TypeScript pnpm monorepo at an early implementation stage; its root
-package is marked private to prevent accidental package publication. Phase 0
-is complete: the v0.1 product contract and acceptance fixtures are frozen.
-Phase 1, additive canonical contracts, is the next implementation phase. See
+package is marked private to prevent accidental package publication. Phases 0
+and 1 are complete: the v0.1 product contract is frozen and additive canonical
+contracts now coexist with the legacy scaffold. Phase 2, the execution and
+trace store, is the next implementation phase. See
 [Implementation Progress](progress.md) for the current phase and validation
 baseline.
 
@@ -28,7 +29,7 @@ There are two models in the repository today:
 | Storage | Process-local `Map` objects | Initially an execution-scoped in-memory store; durable storage remains later work |
 | Connectors | Filesystem and GitHub connectors return simulated acceptance | Narrow, policy-gated connectors report real outcomes; effects are independently verified |
 | Security | Local unauthenticated HTTP/WebSocket scaffold | Explicit principals, policy checks, sandboxing, provenance, and auditable effects |
-| Tests | Four core runtime tests; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
+| Tests | Five shared contract tests and four core runtime tests; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
 
 Do not extend the seven-state model in new canonical contracts. The migration
 must remain additive until the application path has moved and the Phase 10
@@ -159,7 +160,7 @@ panda/
 │   ├── daemon/          Fastify HTTP and WebSocket process
 │   └── dashboard/       React, Vite, and Tailwind local UI
 ├── packages/
-│   ├── shared/          Legacy shared types, factories, IDs, time, logging
+│   ├── shared/          Canonical and legacy contracts, factories, IDs, time
 │   ├── core/            Bus, scheduler, memory, state, connectors, sessions
 │   ├── graph/           Current compatibility runner and fixed transition path
 │   └── sdk/             Typed HTTP client and public type re-exports
@@ -180,7 +181,7 @@ ignored generated artifacts. Change source files, not compiled output.
 
 | Workspace | Main entry point | Responsibility and current limits |
 | --- | --- | --- |
-| `@panda/shared` | `packages/shared/src/index.ts` | Legacy session, observation, action, event, config, ID, timestamp, and logger definitions. Phase 1 canonical contracts will begin here or in a deliberately selected contract module. |
+| `@panda/shared` | `packages/shared/src/index.ts` | Additive v0.1 canonical contracts plus legacy session, observation, action, event, config, ID, timestamp, and logger definitions. Canonical records live in `contracts.ts`; legacy callers remain supported. |
 | `@panda/core` | `packages/core/src/index.ts` | In-memory runtime primitives, connectors, session store, configuration, and all current executable tests. The file is currently monolithic. |
 | `@panda/graph` | `packages/graph/src/index.ts` | Compatibility layer named around the original graph/loop concept. It constructs a new runtime and requests the fixed legacy state sequence. |
 | `@panda/sdk` | `packages/sdk/src/index.ts` | Minimal Fetch-based client for daemon health, sessions, and runs. Its default base URL is hard-coded. |
@@ -480,7 +481,7 @@ verification.
 | `pnpm dev` | Runs daemon and dashboard development processes in parallel |
 | `pnpm build` | Builds every workspace recursively in dependency order |
 | `pnpm typecheck` | Builds first, then runs each workspace's no-emit type check |
-| `pnpm test` | Runs every workspace test script; only core has executable tests |
+| `pnpm test` | Runs every workspace test script; shared and core have executable tests |
 | `pnpm start` | Starts the already-built daemon from `apps/daemon/dist/index.js` |
 | `pnpm run doctor` | Runs the source CLI and checks the default daemon health endpoint; use `run` because `pnpm doctor` resolves to pnpm's own command |
 | `pnpm generate:wallets` | Generates sensitive seed phrases and public donation addresses |
@@ -661,7 +662,7 @@ For a first small code change:
 4. [Conceptual Architecture](architecture/conceptual-architecture.md).
 5. The relevant focused architecture document and ADR.
 
-For Phase 1 or later runtime work, continue with:
+For Phase 2 or later runtime work, continue with:
 
 1. [Framework Requirements](requirements.md).
 2. [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md).

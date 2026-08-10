@@ -2,54 +2,57 @@
 
 ## Current status
 
-- **Latest completed phase:** Phase 0 — Freeze the v0.1 contract
+- **Latest completed phase:** Phase 1 — Introduce canonical contracts additively
 - **Completed:** 2026-08-10
-- **Next phase:** Phase 1 — Introduce canonical contracts additively
-- **Phase plan:** [Phase 0 Plan](plans/phase-0.md)
+- **Next phase:** Phase 2 — Build the execution and trace foundation
+- **Phase plan:** [Phase 1 Plan](plans/phase-1.md)
 - **Frozen baseline:** [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md)
 
-## Phase 0 completion
+## Phase 1 completion
 
 ### What was completed
 
-- Confirmed Perception, Analysis, Network, Decision, and Action as the five
-  dynamically connected PANDA capabilities.
-- Froze the deterministic `demo.file.requested` golden fixture and its
-  independently verified sandboxed filesystem effect.
-- Defined missing-information, policy-denial, connector-failure, and
-  verification-failure fixtures with expected routes, effect counts, and
-  execution/goal states.
-- Fixed the v0.1 sandbox root, allowed effect type, path safety expectations,
-  and test isolation boundary.
-- Defined required trace categories, common identity fields, same-execution
-  causation, and the later monotonic ordering requirement.
-- Documented the in-memory execution store and lack of restart durability.
-- Froze release-test success, waiting, and failure criteria without changing
-  production behavior.
+- Added the exact five-value `PandaCapability` contract while preserving the
+  legacy seven-state `PandaStateName` export.
+- Added `ExecutionContext`, `Goal`, `PandaExecution`, `Signal`, `Observation`,
+  `Assessment`, `Decision`, `ActionRequest`, `Outcome`, `Failure`, `NextStep`,
+  `TransitionRequest`, `TransitionRecord`, and `TraceRecord` to
+  `@panda/shared`.
+- Added typed provenance, producer, evidence, policy, status, effect, and
+  authorization support required by the canonical records.
+- Added a common v0.1 identity envelope with stable record, execution, goal,
+  correlation, optional causation, producer, schema, and time fields.
+- Added constructors that generate consistent IDs, schema versions, and
+  timestamps while preserving caller-supplied fixture identity.
+- Added five focused shared-package tests and retained the current application
+  path and all four legacy core runtime tests.
 
 ### Key technical decisions
 
-- Fixture routes are outputs of capability results and policy, not coordinator
-  sequencing or a mandatory PANDA loop.
-- Network remains a first-class registered capability but is not artificially
-  invoked by a local filesystem scenario.
-- Goal success requires an independent Perception observation and Analysis
-  verification; action dispatch and connector completion are insufficient.
-- The golden effect is limited to `filesystem.write` below
-  `.panda/runs/<executionId>/workspace`.
-- The policy-denial fixture uses an injected deterministic denial so the
-  end-to-end test isolates policy enforcement from path validation.
-- The v0.1 runtime stays deterministic, modular, local-first, and usable with
-  no LLM or model dependency.
+- `PANDA_CAPABILITIES` is a runtime tuple and the `PandaCapability` type is
+  derived from it, keeping runtime discovery and compile-time names aligned.
+- A tagged producer identifies a PANDA capability, connector, or runtime
+  component without confusing infrastructure with the Network capability.
+- Callers must provide execution, goal, correlation, and producer identity;
+  constructors generate only record-local defaults.
+- Initial goal and execution records use their domain identity as their record
+  identity unless an explicit record ID is supplied.
+- Outcome status and effect status remain separate so partial or unknown
+  external effects cannot be represented as success.
+- `TraceRecord.sequence` remains optional until the Phase 2 store assigns and
+  validates per-execution monotonic order.
+- The canonical observation factory is named `createObservationRecord` so the
+  existing `createObservation` API remains backward compatible.
 
 ### Validation results
 
-- `git diff --check` — passed.
-- Local Markdown link/path inspection — passed.
+- `git diff --check` — passed for the staged change.
+- Local Markdown link/path inspection — passed across 30 Markdown files.
+- `pnpm --filter @panda/shared test` — passed; 5 focused tests passed.
 - `pnpm build` — passed for all workspace projects.
 - `pnpm typecheck` — passed for all workspace projects.
-- `pnpm test` — passed; 4 core tests passed and all package test/type-check
-  scripts completed successfully.
+- `pnpm test` — passed; 5 shared contract tests and 4 core runtime tests passed,
+  and all remaining package test/type-check scripts completed successfully.
 - Format and lint — not run because the repository defines no format or lint
   script or configured tool.
 
@@ -57,16 +60,23 @@ The dashboard build emitted the existing Node experimental warning while
 loading the TypeScript Tailwind configuration through CommonJS; the build
 completed successfully.
 
-### Remaining Phase 0 work
+### Remaining Phase 1 work
 
-None. Phase 0 changes only documentation, so no focused executable test was
-added. Its frozen fixtures become focused unit, integration, and end-to-end
-tests in the implementation phases that introduce the relevant behavior.
+None. Phase 1 intentionally does not switch runtime callers to the canonical
+contracts; the legacy model stays operational until the additive migration is
+complete and Phase 10 removes it.
+
+## Previous phase
+
+Phase 0 froze the five canonical capabilities, golden filesystem fixture, four
+non-success fixtures, sandbox/effect boundary, trace categories, in-memory
+durability limitation, and release acceptance criteria. Its full completion
+record remains in the [Phase 0 Plan](plans/phase-0.md).
 
 ## Next phase
 
-Phase 1 adds canonical, versioned contracts alongside the legacy scaffold:
-`PandaCapability`, `ExecutionContext`, `Goal`, `PandaExecution`, `Signal`,
-`Observation`, `Assessment`, `Decision`, `ActionRequest`, `Outcome`, `Failure`,
-`NextStep`, `TransitionRequest`, `TransitionRecord`, and `TraceRecord`. It must
-not remove `PandaStateName` or change the current application path.
+Phase 2 adds an `ExecutionStore` port and in-memory implementation. It must
+create, retrieve, list, and update independent executions; append and retrieve
+trace records; assign monotonic per-execution sequence numbers; reject
+cross-execution causation; preserve append-only history; and prove concurrent
+execution isolation without changing the current application path.
