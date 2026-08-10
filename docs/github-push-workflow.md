@@ -318,7 +318,6 @@ Confirm that:
 Do not switch branches, pull, or delete a local branch while unrelated local
 changes are present. The remote branch may be deleted by the merge command
 without disturbing those local changes.
-
 ## 13. Required completion report
 
 Every completed publication should report:
