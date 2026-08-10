@@ -11,6 +11,8 @@ orchestrator.
 
 Static project homepage: [`index.html`](./index.html)
 
+Project documentation: [`docs/README.md`](./docs/README.md)
+
 ## What PANDA Means
 
 - **Perception**: Gather information from users, tools, APIs, sensors, memory,
