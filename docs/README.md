@@ -1,5 +1,10 @@
 # PANDA Documentation
 
+## Getting Started
+
+- [Developer Onboarding](developer-onboarding.md) — local setup, architecture
+  guardrails, development phases, validation, and completion workflow
+
 ## Requirements
 
 - [PANDA Framework Software Requirements](requirements.md) — normative

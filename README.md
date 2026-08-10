@@ -13,6 +13,9 @@ Static project homepage: [`index.html`](./index.html)
 
 Project documentation: [`docs/README.md`](./docs/README.md)
 
+Developer onboarding:
+[`docs/developer-onboarding.md`](./docs/developer-onboarding.md)
+
 Framework requirements: [`docs/requirements.md`](./docs/requirements.md)
 
 ## What PANDA Means
