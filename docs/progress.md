@@ -2,67 +2,78 @@
 
 ## Current status
 
-- **Latest completed phase:** Phase 3 — Add the dynamic coordinator
+- **Latest completed phase:** Phase 4 — Implement deterministic PANDA capabilities
 - **Completed:** 2026-08-10
-- **Next phase:** Phase 4 — Implement deterministic PANDA capabilities
-- **Phase plan:** [Phase 3 Plan](plans/phase-3.md)
+- **Next phase:** Phase 5 — Add the policy gate
+- **Phase plan:** [Phase 4 Plan](plans/phase-4.md)
 - **Frozen baseline:** [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md)
 
-## Phase 3 completion
+## Phase 4 completion
 
 ### What was completed
 
-- Added capability invocation and result contracts, the `CapabilityRegistry`
-  port, and an ownership-safe in-memory registry to `@panda/core`.
-- Added an execution-scoped coordinator that uses capability-produced
-  `NextStep` values instead of a fixed route.
-- Added support for self-transitions, non-adjacent invocation, wait/resume, and
-  successful, failed, or cancelled termination.
-- Passed each capability product to its dynamically selected successor and
-  preserved prior invocation IDs in resumed execution context.
-- Recorded invocation start/completion, transition request, transition commit
-  or rejection, wait, structured failure, and termination in one causal trace.
-- Rejected unknown capabilities, duplicate or non-canonical registrations,
-  malformed results, stale execution updates, and overlapping coordination of
-  the same execution.
-- Enforced configurable invocation limits, execution deadlines, and
-  cancellation signals without adding scenario-specific routing.
+- Added deterministic Perception, Analysis, Network, Decision, and Action
+  implementations to `@panda/core`.
+- Added one registration helper that installs the canonical five-capability set
+  atomically and returns ownership-safe cleanup.
+- Normalized canonical `demo.file.requested` signals into observations while
+  preserving source, occurrence/receipt time, provenance, identity, and the
+  supplied payload.
+- Classified complete, incomplete, and invalid requests without inventing
+  missing content or applying policy rules early.
+- Produced assessments with evidence, assumptions, confidence, information
+  needs, candidate options, and typed readiness results.
+- Produced decisions with selected intent, safe alternatives, decisive
+  evidence and constraints, rationale, and a typed `filesystem.write` request
+  only when evidence was complete.
+- Kept Action effect-free: it validates and stages the selected request, leaves
+  authorization absent, and waits for the future `policy.evaluated` boundary.
+- Registered Network as an effect-free placeholder without forcing it into the
+  filesystem scenario.
 - Retained the legacy application path unchanged for the additive migration.
 
 ### Key technical decisions
 
-- The registry and coordinator live in `@panda/core` and consume the Phase 1
-  contracts plus the Phase 2 `ExecutionStore` port.
-- A canonical execution must select its initial active capability. Each
-  committed `invoke` transition selects the next active capability and passes
-  the previous output as its input.
-- A `wait` transition keeps the source capability selected. A later call can
-  resume that same execution, and invocation history is reconstructed from its
-  stored trace.
-- Requested and committed or rejected transitions are distinct canonical
-  records and distinct trace entries. Their causation links continue from the
-  invocation through the transition outcome to the next material record.
-- Invocation errors and runtime bounds become structured `Failure` data and
-  explicit terminal records; unknown targets and exhausted invocation budgets
-  also retain rejected transition evidence.
-- The coordinator compares material execution state after every asynchronous
-  invocation. A stale result is recorded as rejected and cannot overwrite the
-  newer state.
-- Automatic event matching for `resumeOn`, policy decisions, retry routing,
-  durable scheduling, and capability-specific products remain later phases.
+- Phase 4 validates semantic presence and primitive types only. Absolute-path,
+  traversal, symlink, sandbox, supported-action, and content-size enforcement
+  remain independent Phase 5 policy responsibilities.
+- Perception forwards incomplete and invalid observations to Analysis so the
+  capability output, not the coordinator, selects waiting or failure.
+- Complete input selects this interim dynamic route:
+
+  ```text
+  Perception -> Analysis -> Decision -> Action -> wait(policy.evaluated)
+  ```
+
+- Missing content selects `Perception -> Analysis -> wait` with a required
+  `content` information need, no Decision, and no ActionRequest.
+- Invalid input selects `Perception -> Analysis -> terminate(failed)` while
+  preserving the invalid supplied value as evidence.
+- Decision creates a stable idempotency key and UTF-8 write parameters, but it
+  does not fabricate an authorization reference. Structural readiness is not
+  permission.
+- Action has no connector dependency in this phase. Its only valid effect
+  candidate is exposed as data and held behind an explicit wait.
+- The Phase 3 coordinator remains scenario-independent; no route table or
+  capability position was added to it.
+- Goal-state mutation, product-specific trace envelopes, automatic wait-event
+  matching, policy outcomes, and environmental verification remain later
+  phases.
 
 ### Validation results
 
 - `git diff --check` — passed.
-- Local Markdown link/path inspection — passed; 88 local links across 36
+- Local Markdown link/path inspection — passed; 93 local links across 37
   Markdown files checked.
-- `pnpm --filter @panda/core test` — passed; 22 core tests passed, including
-  eight focused Phase 3 tests with four nested failure/boundary cases, six
-  execution-store tests, and four legacy runtime tests.
+- `pnpm --filter @panda/core test` — passed; 26 core tests passed, including
+  four focused Phase 4 tests, eight Phase 3 coordinator tests with four nested
+  cases, six execution-store tests, and four legacy runtime tests.
 - `pnpm build` — passed for all workspace projects.
 - `pnpm typecheck` — passed for all workspace projects.
-- `pnpm test` — passed; 5 shared contract tests and 22 core tests passed, and
+- `pnpm test` — passed; 5 shared contract tests and 26 core tests passed, and
   all remaining package scripts completed successfully.
+- `.env`, generated wallets, and build outputs — confirmed ignored and absent
+  from the change set.
 - Format and lint — not run because the repository defines no format or lint
   script or configured tool.
 
@@ -70,23 +81,25 @@ The dashboard build emitted the existing Node experimental warning while
 loading the TypeScript Tailwind configuration through CommonJS; the build
 completed successfully.
 
-### Remaining Phase 3 work
+### Remaining Phase 4 work
 
-None. Phase 3 intentionally does not wire the coordinator into runtime callers
-or implement scenario behavior. Those responsibilities remain ordered behind
-the deterministic capabilities and later daemon integration phases.
+None. The deterministic capability route is complete and remains intentionally
+effect-free. It is not wired into daemon callers before the ordered integration
+phase.
 
 ## Previous phases
 
-Phases 0 through 2 froze the v0.1 product baseline, added the canonical
-contract family, and established independent in-memory execution state with
-append-only causal traces. Their full completion records remain in the
-[Phase 0 Plan](plans/phase-0.md), [Phase 1 Plan](plans/phase-1.md), and
-[Phase 2 Plan](plans/phase-2.md).
+Phases 0 through 3 froze the v0.1 product baseline, added the canonical
+contract family, established independent in-memory execution state with
+append-only causal traces, and added dynamic execution-scoped coordination.
+Their full completion records remain in the [Phase 0 Plan](plans/phase-0.md),
+[Phase 1 Plan](plans/phase-1.md), [Phase 2 Plan](plans/phase-2.md), and
+[Phase 3 Plan](plans/phase-3.md).
 
 ## Next phase
 
-Phase 4 implements deterministic Perception, Analysis, Network, Decision, and
-Action capabilities. Complete and incomplete inputs must produce different
-routes, decisions must retain evidence and rationale, and the filesystem
-scenario must remain effect-free until the Phase 5 policy gate is complete.
+Phase 5 adds an independent policy port and evaluates transitions and effect
+requests before external work. It must restrict v0.1 to `filesystem.write`
+inside the current execution workspace, reject absolute paths, traversal,
+symlink escapes, unsupported effects, and oversized content, retain policy
+evidence in the trace, and guarantee that denials never reach a connector.
