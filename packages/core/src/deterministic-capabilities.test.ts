@@ -6,6 +6,7 @@ import {
   createPandaExecution,
   createSignal,
   createTraceRecord,
+  type Outcome,
   type PandaExecution,
   type Signal,
 } from "@panda/shared";
@@ -14,9 +15,9 @@ import {
   InMemoryCapabilityRegistry,
 } from "./coordinator.js";
 import {
+  ACTION_CONNECTOR_RESUME_EVENT,
   DEMO_FILE_REQUEST_TYPE,
   FILESYSTEM_WRITE_ACTION_TYPE,
-  POLICY_EVALUATION_RESUME_EVENT,
   registerDeterministicPandaCapabilities,
   type DemoFileAssessment,
   type DemoFileDecision,
@@ -25,6 +26,11 @@ import {
   InMemoryExecutionStore,
   type StoredTraceRecord,
 } from "./execution-store.js";
+import {
+  V01PolicyEngine,
+  V01_FILESYSTEM_POLICY_ID,
+  type PolicyEngine,
+} from "./policy.js";
 
 const fixedTime = "2026-08-10T12:00:00.000Z";
 const producer = { kind: "runtime", component: "phase-4-test" } as const;
@@ -68,7 +74,11 @@ function makeSignal(
   });
 }
 
-async function runScenario(executionId: string, payload: unknown) {
+async function runScenario(
+  executionId: string,
+  payload: unknown,
+  policyEngine?: PolicyEngine,
+) {
   const store = new InMemoryExecutionStore();
   const registry = new InMemoryCapabilityRegistry();
   const execution = store.createExecution(makeExecution(executionId));
@@ -88,9 +98,11 @@ async function runScenario(executionId: string, payload: unknown) {
   );
   const unregister = registerDeterministicPandaCapabilities(registry, {
     now: () => fixedTime,
+    policyEngine,
   });
   const result = await new ExecutionCoordinator(store, registry, {
     now: () => fixedTime,
+    policyEngine,
   }).run({
     executionId: execution.executionId,
     input: signal,
@@ -147,7 +159,7 @@ test("routes a complete request through deterministic capabilities and stages no
   assert.equal(scenario.result.invocationCount, 4);
   assert.equal(
     scenario.result.execution.statusReason,
-    "The effect candidate is staged but remains unauthorized until the Phase 5 policy gate evaluates it.",
+    "Policy allowed the exact request, but no Action connector is enabled before Phase 6.",
   );
 
   const [observation, assessmentValue, decisionValue, actionRequest] =
@@ -186,7 +198,12 @@ test("routes a complete request through deterministic capabilities and stages no
   assert.ok(isRecord(actionRequest));
   assert.equal(actionRequest.kind, "action-request");
   assert.equal(actionRequest.actionType, FILESYSTEM_WRITE_ACTION_TYPE);
-  assert.equal(actionRequest.authorization, undefined);
+  assert.ok(isRecord(actionRequest.authorization));
+  assert.equal(
+    actionRequest.authorization.policyId,
+    V01_FILESYSTEM_POLICY_ID,
+  );
+  assert.equal(typeof actionRequest.authorization.evaluationId, "string");
   assert.deepEqual(actionRequest.parameters, {
     path: "proof.txt",
     content: "PANDA v0.1 completed",
@@ -195,7 +212,24 @@ test("routes a complete request through deterministic capabilities and stages no
   const wait = scenario.trace.at(-1);
   assert.equal(wait?.category, "wait");
   assert.ok(isRecord(wait?.payload));
-  assert.equal(wait.payload.resumeOn, POLICY_EVALUATION_RESUME_EVENT);
+  assert.equal(wait.payload.resumeOn, ACTION_CONNECTOR_RESUME_EVENT);
+  const policyTraces = scenario.trace.filter(
+    (record) => record.category === "policy-evaluation",
+  );
+  assert.equal(policyTraces.length, 5);
+  const effectEvaluation = policyTraces.find(
+    (record) =>
+      isRecord(record.payload) &&
+      record.payload.point === "effect" &&
+      record.payload.result === "allow",
+  );
+  assert.ok(effectEvaluation);
+  assert.ok(isRecord(effectEvaluation.payload));
+  assert.equal(
+    actionRequest.authorization.evaluationId,
+    effectEvaluation.payload.id,
+  );
+  assert.equal(actionRequest.causationId, effectEvaluation.payload.id);
   assert.equal(
     scenario.trace.some(
       (record) =>
@@ -207,6 +241,69 @@ test("routes a complete request through deterministic capabilities and stages no
 
   scenario.unregister();
   assert.deepEqual(scenario.registry.list(), []);
+});
+
+test("routes an injected effect denial through Decision with no connector effect", async () => {
+  const base = new V01PolicyEngine();
+  const denyingPolicy: PolicyEngine = {
+    evaluate(request, signal) {
+      if (request.point === "effect") {
+        return {
+          policyId: V01_FILESYSTEM_POLICY_ID,
+          result: "deny",
+          reason: "phase-0 acceptance denial",
+          inputs: {
+            actionRequestId: request.actionRequest.id,
+            injectedFixture: true,
+          },
+        };
+      }
+      return base.evaluate(request, signal);
+    },
+  };
+  const scenario = await runScenario(
+    "exe_phase_5_policy_denial",
+    {
+      path: "proof.txt",
+      content: "PANDA v0.1 completed",
+    },
+    denyingPolicy,
+  );
+
+  assert.deepEqual(invocationRoute(scenario.trace), [
+    "perception",
+    "analysis",
+    "decision",
+    "action",
+    "decision",
+  ]);
+  assert.equal(scenario.result.execution.status, "failed");
+  const outputs = invocationOutputs(scenario.trace);
+  const outcome = outputs.at(-2) as Outcome;
+  assert.equal(outcome.kind, "outcome");
+  assert.equal(outcome.status, "rejected");
+  assert.equal(outcome.effectStatus, "none");
+  assert.equal(outcome.error?.code, "POLICY_DENIED");
+  const finalDecision = outputs.at(-1) as DemoFileDecision;
+  assert.equal(finalDecision.kind, "decision");
+  assert.equal(finalDecision.selectedOption.intent?.kind, "no-action");
+  assert.equal(finalDecision.nextStep.kind, "terminate");
+  assert.equal(
+    scenario.trace.some(
+      (record) => record.category === "connector-invocation",
+    ),
+    false,
+  );
+  assert.equal(
+    scenario.trace.some(
+      (record) =>
+        record.category === "policy-evaluation" &&
+        isRecord(record.payload) &&
+        record.payload.point === "effect" &&
+        record.payload.result === "deny",
+    ),
+    true,
+  );
 });
 
 test("waits for missing content without creating a decision or action request", async () => {

@@ -1,5 +1,6 @@
 import {
   PANDA_CAPABILITIES,
+  PANDA_SCHEMA_VERSION,
   createExecutionContext,
   createFailure,
   createId,
@@ -13,12 +14,19 @@ import {
   type NextStep,
   type PandaCapability,
   type PandaExecution,
+  type PolicyEvaluation,
+  type PolicyEvaluationSummary,
   type RecordProducer,
   type TerminalOutcome,
   type TransitionRecord,
   type TransitionRequest,
 } from "@panda/shared";
 import type { ExecutionStore, StoredTraceRecord } from "./execution-store.js";
+import {
+  V01PolicyEngine,
+  evaluatePolicy,
+  type PolicyEngine,
+} from "./policy.js";
 
 export interface CapabilityInvocation<TInput = unknown> {
   readonly context: ExecutionContext;
@@ -29,6 +37,7 @@ export interface CapabilityInvocation<TInput = unknown> {
 export interface CapabilityResult<TOutput = unknown> {
   readonly output: TOutput;
   readonly nextStep: NextStep;
+  readonly policyEvaluations?: readonly PolicyEvaluation[];
 }
 
 export interface CapabilityImplementation<TInput = unknown, TOutput = unknown> {
@@ -145,6 +154,7 @@ export interface ExecutionCoordinatorOptions {
   readonly maxInvocations?: number;
   readonly component?: string;
   readonly now?: () => string;
+  readonly policyEngine?: PolicyEngine;
 }
 
 export interface CoordinateExecutionInput {
@@ -198,6 +208,7 @@ export class ExecutionCoordinator {
   private readonly maxInvocations: number;
   private readonly component: string;
   private readonly now: () => string;
+  private readonly policyEngine: PolicyEngine;
   private readonly activeExecutions = new Set<string>();
 
   constructor(
@@ -216,6 +227,7 @@ export class ExecutionCoordinator {
     this.maxInvocations = maxInvocations;
     this.component = options.component ?? "execution-coordinator";
     this.now = options.now ?? nowIso;
+    this.policyEngine = options.policyEngine ?? new V01PolicyEngine();
   }
 
   async run(input: CoordinateExecutionInput): Promise<CoordinationResult> {
@@ -393,8 +405,13 @@ export class ExecutionCoordinator {
       }
 
       let nextStep: NextStep;
+      let policyEvaluations: readonly PolicyEvaluation[];
       try {
         nextStep = validateNextStep(result?.nextStep);
+        policyEvaluations = validatePolicyEvaluations(
+          result?.policyEvaluations,
+          execution,
+        );
       } catch (error) {
         this.assertFresh(execution);
         if (error instanceof InvocationBoundaryError) {
@@ -410,13 +427,21 @@ export class ExecutionCoordinator {
         throw error;
       }
       lastOutput = result?.output;
+      let completionCausationId = invocationStarted.id;
+      for (const evaluation of policyEvaluations) {
+        completionCausationId = this.appendPolicyTrace(
+          execution,
+          evaluation,
+          completionCausationId,
+        ).id;
+      }
       const invocationCompleted = this.appendInvocationTrace(
         execution,
         context,
         capability,
         invocationId,
         "completed",
-        invocationStarted.id,
+        completionCausationId,
         { output: lastOutput, nextStep },
       );
       invocationHistory.push(invocationId);
@@ -499,11 +524,113 @@ export class ExecutionCoordinator {
         );
       }
 
+      const policyExecution = execution;
+      let policyEvaluation: PolicyEvaluation;
+      try {
+        policyEvaluation = await this.runWithinBounds(
+          (signal) =>
+            evaluatePolicy(
+              this.policyEngine,
+              {
+                point: "transition",
+                executionId: policyExecution.executionId,
+                goalId: policyExecution.goalId,
+                correlationId: policyExecution.correlationId,
+                causationId: request.id,
+                producer: this.runtimeProducer,
+                execution: policyExecution,
+                transition: request,
+              },
+              { now: this.now, signal },
+            ),
+          policyExecution.deadline,
+          input.signal,
+        );
+      } catch (error) {
+        if (error instanceof InvocationBoundaryError) {
+          return this.failExecution(
+            execution,
+            error.failure,
+            requestTrace.id,
+            invocationCount,
+            lastOutput,
+          );
+        }
+        return this.failExecution(
+          execution,
+          {
+            category: "policy-violation",
+            code: "TRANSITION_POLICY_EVALUATION_FAILED",
+            message: `Transition policy evaluation failed: ${describeError(error)}`,
+            outcome: "failed",
+          },
+          requestTrace.id,
+          invocationCount,
+          lastOutput,
+        );
+      }
+      const policyTrace = this.appendPolicyTrace(
+        execution,
+        policyEvaluation,
+        requestTrace.id,
+      );
+      const policySummary = summarizePolicyEvaluation(policyEvaluation);
+      const afterPolicy = this.store.getExecution(execution.executionId);
+      if (
+        afterPolicy === undefined ||
+        !sameExecutionState(execution, afterPolicy)
+      ) {
+        this.recordTransition(
+          execution,
+          request,
+          policyTrace.id,
+          "rejected",
+          "The execution changed while transition policy was being evaluated.",
+          policySummary,
+        );
+        throw new ExecutionCoordinatorError(
+          "STALE_EXECUTION",
+          `Execution ${execution.executionId} changed during policy evaluation for ${request.id}.`,
+        );
+      }
+
+      if (policyEvaluation.result !== "allow") {
+        const rejectionReason =
+          policyEvaluation.result === "require"
+            ? `Transition policy requires additional authorization: ${policyEvaluation.reason}`
+            : `Transition policy denied the request: ${policyEvaluation.reason}`;
+        const rejected = this.recordTransition(
+          execution,
+          request,
+          policyTrace.id,
+          "rejected",
+          rejectionReason,
+          policySummary,
+        );
+        return this.failExecution(
+          execution,
+          {
+            category: "policy-violation",
+            code:
+              policyEvaluation.result === "require"
+                ? "TRANSITION_POLICY_AUTHORIZATION_REQUIRED"
+                : "TRANSITION_POLICY_DENIED",
+            message: rejectionReason,
+            outcome: "failed",
+          },
+          rejected.id,
+          invocationCount,
+          lastOutput,
+        );
+      }
+
       const committed = this.recordTransition(
         execution,
         request,
-        requestTrace.id,
+        policyTrace.id,
         "committed",
+        undefined,
+        policySummary,
       );
 
       if (nextStep.kind === "invoke") {
@@ -609,12 +736,32 @@ export class ExecutionCoordinator {
     );
   }
 
+  private appendPolicyTrace(
+    execution: PandaExecution,
+    evaluation: PolicyEvaluation,
+    causationId: string,
+  ): StoredTraceRecord<PolicyEvaluation> {
+    return this.store.appendTrace(
+      createTraceRecord({
+        executionId: execution.executionId,
+        goalId: execution.goalId,
+        correlationId: execution.correlationId,
+        causationId,
+        producer: evaluation.producer,
+        category: "policy-evaluation",
+        type: `policy.${evaluation.point}.${evaluation.result}`,
+        payload: evaluation,
+      }),
+    );
+  }
+
   private recordTransition(
     execution: PandaExecution,
     request: TransitionRequest,
     causationId: string,
     status: TransitionRecord["status"],
     rejectionReason?: string,
+    policy?: PolicyEvaluationSummary,
   ): StoredTraceRecord<TransitionRecord> {
     const transition = createTransitionRecord({
       executionId: execution.executionId,
@@ -627,6 +774,7 @@ export class ExecutionCoordinator {
       sourceInvocationId: request.sourceInvocationId,
       triggerId: request.triggerId,
       nextStep: request.nextStep,
+      policy,
       status,
       rejectionReason,
     });
@@ -652,6 +800,23 @@ export class ExecutionCoordinator {
     deadline: string | undefined,
     externalSignal: AbortSignal | undefined,
   ): Promise<CapabilityResult> {
+    return this.runWithinBounds(
+      (signal) =>
+        this.registry.invoke(capability, {
+          context,
+          input,
+          signal,
+        }),
+      deadline,
+      externalSignal,
+    );
+  }
+
+  private async runWithinBounds<T>(
+    work: (signal: AbortSignal) => Promise<T> | T,
+    deadline: string | undefined,
+    externalSignal: AbortSignal | undefined,
+  ): Promise<T> {
     const controller = new AbortController();
     const deadlineMs = deadline === undefined ? undefined : Date.parse(deadline);
     const remainingMs =
@@ -689,14 +854,8 @@ export class ExecutionCoordinator {
     });
 
     try {
-      const invocationPromise = Promise.resolve(
-        this.registry.invoke(capability, {
-          context,
-          input,
-          signal: controller.signal,
-        }),
-      );
-      return await Promise.race([invocationPromise, boundaryPromise]);
+      const workPromise = Promise.resolve(work(controller.signal));
+      return await Promise.race([workPromise, boundaryPromise]);
     } finally {
       if (timer !== undefined) {
         clearTimeout(timer);
@@ -898,6 +1057,68 @@ function validateNextStep(value: unknown): NextStep {
   });
 }
 
+function validatePolicyEvaluations(
+  value: unknown,
+  execution: PandaExecution,
+): readonly PolicyEvaluation[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new InvocationBoundaryError({
+      category: "invalid-contract",
+      code: "INVALID_POLICY_EVALUATIONS",
+      message: "Capability policy evaluations must be an array.",
+      outcome: "failed",
+    });
+  }
+
+  for (const evaluation of value) {
+    if (
+      !isRecord(evaluation) ||
+      evaluation.kind !== "policy-evaluation" ||
+      typeof evaluation.id !== "string" ||
+      evaluation.id.trim() === "" ||
+      evaluation.schemaVersion !== PANDA_SCHEMA_VERSION ||
+      evaluation.executionId !== execution.executionId ||
+      evaluation.goalId !== execution.goalId ||
+      evaluation.correlationId !== execution.correlationId ||
+      (evaluation.point !== "transition" && evaluation.point !== "effect") ||
+      typeof evaluation.policyId !== "string" ||
+      evaluation.policyId.trim() === "" ||
+      (evaluation.result !== "allow" &&
+        evaluation.result !== "deny" &&
+        evaluation.result !== "require") ||
+      typeof evaluation.reason !== "string" ||
+      evaluation.reason.trim() === "" ||
+      typeof evaluation.timestamp !== "string" ||
+      !isRecord(evaluation.producer) ||
+      !isRecord(evaluation.inputs)
+    ) {
+      throw new InvocationBoundaryError({
+        category: "invalid-contract",
+        code: "INVALID_POLICY_EVALUATIONS",
+        message:
+          "A capability returned an invalid or cross-execution policy evaluation.",
+        outcome: "failed",
+      });
+    }
+  }
+
+  return value as PolicyEvaluation[];
+}
+
+function summarizePolicyEvaluation(
+  evaluation: PolicyEvaluation,
+): PolicyEvaluationSummary {
+  return {
+    evaluationId: evaluation.id,
+    policyId: evaluation.policyId,
+    result: evaluation.result,
+    reason: evaluation.reason,
+  };
+}
+
 function sameExecutionState(
   expected: PandaExecution,
   current: PandaExecution,
@@ -937,6 +1158,10 @@ function invocationIdFromTrace(payload: unknown): string[] {
     return [payload.invocationId];
   }
   return [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function isPandaCapability(value: unknown): value is PandaCapability {

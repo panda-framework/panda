@@ -12,6 +12,7 @@ import {
   createObservationRecord,
   createOutcome,
   createPandaExecution,
+  createPolicyEvaluation,
   createSignal,
   createTraceRecord,
   createTransitionRecord,
@@ -223,15 +224,33 @@ test("transition and trace records preserve caller-provided identity and time", 
     triggerId: "asm_missing_content",
     nextStep: requestedStep,
   });
+  const policy = createPolicyEvaluation({
+    ...commonIdentity,
+    id: "pol_fixed",
+    timestamp: "2026-08-10T00:00:05.000Z",
+    causationId: request.id,
+    producer: { kind: "runtime", component: "policy-engine" },
+    point: "transition",
+    policyId: "panda.v0.1.transitions",
+    result: "allow",
+    reason: "The transition is allowed.",
+    inputs: { requestId: request.id },
+  });
   const transition = createTransitionRecord({
     ...commonIdentity,
-    causationId: request.id,
+    causationId: policy.id,
     producer: { kind: "runtime", component: "coordinator" },
     requestId: request.id,
     sourceCapability: "analysis",
     sourceInvocationId: "inv_analysis_1",
     triggerId: "asm_missing_content",
     nextStep: requestedStep,
+    policy: {
+      evaluationId: policy.id,
+      policyId: policy.policyId,
+      result: policy.result,
+      reason: policy.reason,
+    },
     status: "committed",
   });
   const trace = createTraceRecord({
@@ -245,7 +264,10 @@ test("transition and trace records preserve caller-provided identity and time", 
 
   assert.equal(request.id, "trnreq_fixed");
   assert.equal(request.timestamp, "2026-08-10T00:00:04.000Z");
-  assert.equal(transition.causationId, request.id);
+  assert.equal(policy.causationId, request.id);
+  assert.equal(policy.inputs.requestId, request.id);
+  assert.equal(transition.causationId, policy.id);
+  assert.equal(transition.policy?.evaluationId, policy.id);
   assert.equal(trace.causationId, transition.id);
   assert.deepEqual(trace.payload, { resumeOn: "demo.file.requested" });
   assert.equal(trace.sequence, undefined);

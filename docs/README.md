@@ -25,6 +25,7 @@
 - [Phase 2 Plan](plans/phase-2.md) — execution-scoped in-memory state, causal trace ordering, isolation tests, and completion record
 - [Phase 3 Plan](plans/phase-3.md) — dynamic capability registration, execution-scoped coordination, runtime bounds, and transition traces
 - [Phase 4 Plan](plans/phase-4.md) — deterministic capability products, evidence-driven routes, and the effect-free policy handoff
+- [Phase 5 Plan](plans/phase-5.md) — transition and effect policy, sandbox boundaries, authorization, and denial routing
 - [GitHub Pull Request Workflow](github-push-workflow.md) — credential-safe validation, commit, push, review, merge, verification, and guarded feature-branch cleanup
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
 

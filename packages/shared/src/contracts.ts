@@ -400,10 +400,28 @@ export function createTransitionRequest(
   return createCanonicalRecord("trnreq", { ...input, kind: "transition-request" });
 }
 
+export type PolicyEvaluationPoint = "transition" | "effect";
+export type PolicyEvaluationResult = "allow" | "deny" | "require";
+
+export interface PolicyEvaluation extends CanonicalRecord {
+  readonly kind: "policy-evaluation";
+  readonly point: PolicyEvaluationPoint;
+  readonly policyId: string;
+  readonly result: PolicyEvaluationResult;
+  readonly reason: string;
+  readonly inputs: Readonly<Record<string, unknown>>;
+}
+
+export function createPolicyEvaluation(
+  input: KindedRecordInput<PolicyEvaluation>,
+): PolicyEvaluation {
+  return createCanonicalRecord("pol", { ...input, kind: "policy-evaluation" });
+}
+
 export interface PolicyEvaluationSummary {
   readonly evaluationId: string;
   readonly policyId: string;
-  readonly result: "allow" | "deny" | "require";
+  readonly result: PolicyEvaluationResult;
   readonly reason: string;
 }
 
