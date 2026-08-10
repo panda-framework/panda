@@ -13,9 +13,10 @@ architecture, plans, and progress records.
 
 PANDA is a TypeScript pnpm monorepo at an early implementation stage; its root
 package is marked private to prevent accidental package publication. Phases 0
-and 1 are complete: the v0.1 product contract is frozen and additive canonical
-contracts now coexist with the legacy scaffold. Phase 2, the execution and
-trace store, is the next implementation phase. See
+through 2 are complete: the v0.1 product contract is frozen, additive canonical
+contracts coexist with the legacy scaffold, and the execution-scoped in-memory
+store now retains ordered causal traces. Phase 3, the dynamic coordinator, is
+the next implementation phase. See
 [Implementation Progress](progress.md) for the current phase and validation
 baseline.
 
@@ -25,11 +26,11 @@ There are two models in the repository today:
 | --- | --- | --- |
 | Capability/state names | Seven legacy states: perception, understanding, memory, planning, decision, execution, reflection | Five PANDA capabilities: perception, analysis, network, decision, action |
 | Routing | `runPandaLoop` requests a predetermined sequence | Each capability returns a policy-permitted next step dynamically |
-| Goals and executions | Sessions and messages only | First-class goals, execution-scoped state, outcomes, failures, and traces |
-| Storage | Process-local `Map` objects | Initially an execution-scoped in-memory store; durable storage remains later work |
+| Goals and executions | The application path still uses sessions and messages; canonical execution contracts and an unwired execution store are available | First-class goals, execution-scoped state, outcomes, failures, and traces |
+| Storage | Process-local session storage plus an isolated in-memory execution and append-only trace store | The Phase 2 port permits replacement; durable storage remains later work |
 | Connectors | Filesystem and GitHub connectors return simulated acceptance | Narrow, policy-gated connectors report real outcomes; effects are independently verified |
 | Security | Local unauthenticated HTTP/WebSocket scaffold | Explicit principals, policy checks, sandboxing, provenance, and auditable effects |
-| Tests | Five shared contract tests and four core runtime tests; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
+| Tests | Five shared contract tests, six execution-store tests, and four legacy core runtime tests; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
 
 Do not extend the seven-state model in new canonical contracts. The migration
 must remain additive until the application path has moved and the Phase 10
@@ -161,7 +162,7 @@ panda/
 │   └── dashboard/       React, Vite, and Tailwind local UI
 ├── packages/
 │   ├── shared/          Canonical and legacy contracts, factories, IDs, time
-│   ├── core/            Bus, scheduler, memory, state, connectors, sessions
+│   ├── core/            Execution store plus legacy runtime primitives
 │   ├── graph/           Current compatibility runner and fixed transition path
 │   └── sdk/             Typed HTTP client and public type re-exports
 ├── examples/            Small SDK usage examples
@@ -182,7 +183,7 @@ ignored generated artifacts. Change source files, not compiled output.
 | Workspace | Main entry point | Responsibility and current limits |
 | --- | --- | --- |
 | `@panda/shared` | `packages/shared/src/index.ts` | Additive v0.1 canonical contracts plus legacy session, observation, action, event, config, ID, timestamp, and logger definitions. Canonical records live in `contracts.ts`; legacy callers remain supported. |
-| `@panda/core` | `packages/core/src/index.ts` | In-memory runtime primitives, connectors, session store, configuration, and all current executable tests. The file is currently monolithic. |
+| `@panda/core` | `packages/core/src/index.ts` | Public execution-store port and in-memory implementation plus legacy runtime primitives, connectors, session store, configuration, and executable tests. The Phase 2 store is isolated in `execution-store.ts` and is not wired into the application path yet. |
 | `@panda/graph` | `packages/graph/src/index.ts` | Compatibility layer named around the original graph/loop concept. It constructs a new runtime and requests the fixed legacy state sequence. |
 | `@panda/sdk` | `packages/sdk/src/index.ts` | Minimal Fetch-based client for daemon health, sessions, and runs. Its default base URL is hard-coded. |
 | `@panda/daemon` | `apps/daemon/src/index.ts` | Owns the Fastify server, process-local sessions, a runtime instance, connector registration, and WebSocket fan-out. |
@@ -571,10 +572,11 @@ behind these boundaries.
 
 New contributors should not assume the following exists today:
 
-- canonical five-capability TypeScript contracts;
-- first-class goals or independent executions;
+- a first-class goal repository or goal lifecycle runtime;
+- integration of canonical executions and traces into the current application
+  path;
 - dynamic capability coordination;
-- execution-scoped trace storage or causal trace APIs;
+- daemon or SDK APIs for canonical execution and causal trace retrieval;
 - policy evaluation, approvals, sandbox enforcement, or real connector effects;
 - independent environmental verification of action outcomes;
 - durable sessions, executions, events, or restart recovery;
@@ -662,7 +664,7 @@ For a first small code change:
 4. [Conceptual Architecture](architecture/conceptual-architecture.md).
 5. The relevant focused architecture document and ADR.
 
-For Phase 2 or later runtime work, continue with:
+For Phase 3 or later runtime work, continue with:
 
 1. [Framework Requirements](requirements.md).
 2. [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md).
