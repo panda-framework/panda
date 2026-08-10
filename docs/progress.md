@@ -5,7 +5,8 @@
 - **Latest completed phase:** Phase 2 — Build the execution and trace foundation
 - **Completed:** 2026-08-10
 - **Next phase:** Phase 3 — Add the dynamic coordinator
-- **Phase plan:** [Phase 2 Plan](plans/phase-2.md)
+- **Active phase plan:** [Phase 3 Plan](plans/phase-3.md)
+- **Latest completion record:** [Phase 2 Plan](plans/phase-2.md)
 - **Frozen baseline:** [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md)
 
 ## Phase 2 completion
@@ -74,8 +75,8 @@ family. Their full completion records remain in the
 
 ## Next phase
 
-Phase 3 adds a `CapabilityRegistry` and execution-scoped coordinator. It must
-invoke dynamically selected capabilities, consume `invoke`, `wait`, and
-`terminate` next steps, validate and record transitions, convert invocation
-errors into structured failures, reject stale or unknown targets, and enforce
-invocation, deadline, and cancellation bounds without encoding a fixed route.
+The [Phase 3 Plan](plans/phase-3.md) defines the capability registry,
+execution-scoped coordinator, transition and trace semantics, failure model,
+concurrency boundary, execution limits, tests, and exit gate. Phase 3 must
+consume `invoke`, `wait`, and `terminate` next steps without encoding a fixed
+route or enabling the later policy and external-effect phases prematurely.

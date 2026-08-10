@@ -669,9 +669,10 @@ For Phase 3 or later runtime work, continue with:
 1. [Framework Requirements](requirements.md).
 2. [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md).
 3. [PANDA v0.1 Implementation Plan](v0.1-implementation-plan.md).
-4. [Transitions and Events](architecture/transitions.md).
-5. [State, Context, and Goals](architecture/state-context-goals.md).
-6. [Policies](architecture/policies.md),
+4. [Phase 3 Plan](plans/phase-3.md).
+5. [Transitions and Events](architecture/transitions.md).
+6. [State, Context, and Goals](architecture/state-context-goals.md).
+7. [Policies](architecture/policies.md),
    [Failure Model](architecture/failure-model.md), and
    [Observability](architecture/observability.md).
 
