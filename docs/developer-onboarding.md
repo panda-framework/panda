@@ -13,12 +13,13 @@ architecture, plans, and progress records.
 
 PANDA is a TypeScript pnpm monorepo at an early implementation stage; its root
 package is marked private to prevent accidental package publication. Phases 0
-through 4 are complete: the v0.1 product contract is frozen, additive canonical
+through 5 are complete: the v0.1 product contract is frozen, additive canonical
 contracts coexist with the legacy scaffold, the execution-scoped in-memory
 store retains ordered causal traces, the dynamic coordinator consumes
 capability-selected routes with bounded execution, and deterministic PANDA
-capabilities now stage the v0.1 action without performing an effect. Phase 5,
-the policy gate, is the next implementation phase. See
+capabilities now route through an independent transition/effect policy gate.
+Allowed requests remain effect-free while denied requests return through
+Decision. Phase 6, real action execution, is the next implementation phase. See
 [Implementation Progress](progress.md) for the current phase and validation
 baseline.
 
@@ -32,7 +33,7 @@ There are two models in the repository today:
 | Storage | Process-local session storage plus an isolated in-memory execution and append-only trace store | The Phase 2 port permits replacement; durable storage remains later work |
 | Connectors | Filesystem and GitHub connectors return simulated acceptance | Narrow, policy-gated connectors report real outcomes; effects are independently verified |
 | Security | Local unauthenticated HTTP/WebSocket scaffold | Explicit principals, policy checks, sandboxing, provenance, and auditable effects |
-| Tests | Five shared contract tests and 26 core tests cover contracts, storage, coordination, deterministic capabilities, and the legacy runtime; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
+| Tests | Five shared contract tests and 45 core tests cover contracts, storage, coordination, policy, deterministic capabilities, and the legacy runtime; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
 
 Do not extend the seven-state model in new canonical contracts. The migration
 must remain additive until the application path has moved and the Phase 10
@@ -185,7 +186,7 @@ ignored generated artifacts. Change source files, not compiled output.
 | Workspace | Main entry point | Responsibility and current limits |
 | --- | --- | --- |
 | `@panda/shared` | `packages/shared/src/index.ts` | Additive v0.1 canonical contracts plus legacy session, observation, action, event, config, ID, timestamp, and logger definitions. Canonical records live in `contracts.ts`; legacy callers remain supported. |
-| `@panda/core` | `packages/core/src/index.ts` | Public execution-store and capability-registry ports, in-memory implementations, the dynamic execution coordinator, deterministic v0.1 capabilities, plus legacy runtime primitives, connectors, session storage, configuration, and executable tests. The additive canonical path is not wired into the applications yet, and deterministic Action waits without an effect until policy exists. |
+| `@panda/core` | `packages/core/src/index.ts` | Public execution-store, capability-registry, and policy ports; in-memory state; the dynamic execution coordinator; deterministic v0.1 capabilities and sandbox policy; plus legacy runtime primitives, connectors, session storage, configuration, and executable tests. The additive canonical path is not wired into the applications yet, and deterministic Action stops before a real effect. |
 | `@panda/graph` | `packages/graph/src/index.ts` | Compatibility layer named around the original graph/loop concept. It constructs a new runtime and requests the fixed legacy state sequence. |
 | `@panda/sdk` | `packages/sdk/src/index.ts` | Minimal Fetch-based client for daemon health, sessions, and runs. Its default base URL is hard-coded. |
 | `@panda/daemon` | `apps/daemon/src/index.ts` | Owns the Fastify server, process-local sessions, a runtime instance, connector registration, and WebSocket fan-out. |
@@ -473,10 +474,10 @@ network, and action responsibilities distinct. Declare supported operations and
 permissions, validate boundary data, use least privilege, and return structured
 outcomes.
 
-Real external effects are not appropriate for the current v0.1 sequence until
-the policy gate in Phase 5 is complete. A connector's accepted or dispatched
-response must remain distinct from effect completion and independent effect
-verification.
+Phase 5 now provides the required policy and sandbox boundary. Real external
+effects still belong to the ordered Phase 6 connector work. A connector's
+accepted or dispatched response must remain distinct from effect completion and
+independent effect verification.
 
 ## 9. Build, test, and validation reference
 
@@ -581,7 +582,7 @@ New contributors should not assume the following exists today:
 - integration of canonical executions and traces into the current application
   path;
 - daemon or SDK APIs for canonical execution and causal trace retrieval;
-- policy evaluation, approvals, sandbox enforcement, or real connector effects;
+- durable approvals, real connector effects, or effect-boundary revalidation;
 - independent environmental verification of action outcomes;
 - durable sessions, executions, events, or restart recovery;
 - authentication, authorization, or production-safe network exposure;
@@ -645,10 +646,10 @@ database implementation, and `InMemoryPandaStore` is the only session store.
 ### A filesystem or GitHub action reports success but nothing happened
 
 The current connectors are stubs. They return an accepted result for supported
-legacy action types but do not perform the effect. The canonical Phase 4 Action
-implementation instead stages its request and waits explicitly. Real
-filesystem work begins only after the v0.1 policy phase establishes its sandbox
-and authorization rules.
+legacy action types but do not perform the effect. The canonical Phase 5 Action
+implementation evaluates policy, returns denials to Decision, and turns an
+allowed candidate into an authorized request that still waits explicitly.
+Real filesystem work begins in Phase 6.
 
 ### A package change does not appear in the live app
 
@@ -671,7 +672,7 @@ For a first small code change:
 4. [Conceptual Architecture](architecture/conceptual-architecture.md).
 5. The relevant focused architecture document and ADR.
 
-For Phase 5 or later runtime work, continue with:
+For Phase 6 or later runtime work, continue with:
 
 1. [Framework Requirements](requirements.md).
 2. [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md).

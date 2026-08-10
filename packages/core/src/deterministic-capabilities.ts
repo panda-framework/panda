@@ -4,6 +4,7 @@ import {
   createDecision,
   createId,
   createObservationRecord,
+  createOutcome,
   nowIso,
   type ActionRequest,
   type Assessment,
@@ -14,6 +15,8 @@ import {
   type InformationNeed,
   type NextStep,
   type Observation,
+  type Outcome,
+  type PolicyEvaluation,
   type Signal,
 } from "@panda/shared";
 import type {
@@ -22,12 +25,19 @@ import type {
   CapabilityRegistry,
   CapabilityResult,
 } from "./coordinator.js";
+import {
+  V01PolicyEngine,
+  evaluatePolicy,
+  type PolicyEngine,
+} from "./policy.js";
 
 export const DEMO_FILE_REQUEST_TYPE = "demo.file.requested" as const;
 export const FILESYSTEM_WRITE_ACTION_TYPE = "filesystem.write" as const;
 export const FILESYSTEM_CONNECTOR_ID = "filesystem" as const;
 export const EXECUTION_WORKSPACE_TARGET = "execution-workspace" as const;
 export const POLICY_EVALUATION_RESUME_EVENT = "policy.evaluated" as const;
+export const ACTION_CONNECTOR_RESUME_EVENT =
+  "action.connector.available" as const;
 
 export interface DemoFileWriteParameters {
   readonly path: string;
@@ -68,6 +78,12 @@ export type DemoFileDecisionIntent =
 
 export type DemoFileDecision = Decision<DemoFileDecisionIntent>;
 
+export interface DemoFilePolicyOutcomeData {
+  readonly policyEvaluation: PolicyEvaluation;
+}
+
+export type DemoFilePolicyOutcome = Outcome<DemoFilePolicyOutcomeData>;
+
 export interface NetworkPlaceholderResult {
   readonly kind: "network-placeholder";
   readonly status: "idle";
@@ -76,6 +92,7 @@ export interface NetworkPlaceholderResult {
 
 export interface DeterministicCapabilityOptions {
   readonly now?: () => string;
+  readonly policyEngine?: PolicyEngine;
 }
 
 interface InspectedDemoFileInput {
@@ -213,7 +230,11 @@ export class DeterministicAnalysisCapability
 
 /** Selects an effect candidate only when the deterministic evidence is ready. */
 export class DeterministicDecisionCapability
-  implements CapabilityImplementation<DemoFileAssessment, DemoFileDecision>
+  implements
+    CapabilityImplementation<
+      DemoFileAssessment | DemoFilePolicyOutcome,
+      DemoFileDecision
+    >
 {
   readonly capability = "decision" as const;
   private readonly now: () => string;
@@ -223,9 +244,14 @@ export class DeterministicDecisionCapability
   }
 
   invoke(
-    invocation: CapabilityInvocation<DemoFileAssessment>,
+    invocation: CapabilityInvocation<
+      DemoFileAssessment | DemoFilePolicyOutcome
+    >,
   ): CapabilityResult<DemoFileDecision> {
     throwIfAborted(invocation.signal);
+    if (isPolicyOutcome(invocation.input)) {
+      return this.decidePolicyOutcome(invocation.input, invocation);
+    }
     const assessment = requireAssessment(invocation.input, invocation);
     const result = requireAssessmentResult(assessment.result);
     const timestamp = this.now();
@@ -362,25 +388,124 @@ export class DeterministicDecisionCapability
 
     return { output: decision, nextStep };
   }
+
+  private decidePolicyOutcome(
+    outcome: DemoFilePolicyOutcome,
+    invocation: CapabilityInvocation,
+  ): CapabilityResult<DemoFileDecision> {
+    assertRecordIdentity(
+      outcome as unknown as Record<string, unknown>,
+      invocation,
+      "Outcome",
+    );
+    const evaluation = outcome.data?.policyEvaluation;
+    if (
+      outcome.status !== "rejected" ||
+      outcome.effectStatus !== "none" ||
+      evaluation === undefined ||
+      evaluation.point !== "effect" ||
+      evaluation.result === "allow" ||
+      outcome.causationId !== evaluation.id ||
+      evaluation.causationId !== outcome.actionRequestId
+    ) {
+      throw new TypeError(
+        "Decision requires a rejected zero-effect policy outcome.",
+      );
+    }
+    assertRecordIdentity(
+      evaluation as unknown as Record<string, unknown>,
+      invocation,
+      "PolicyEvaluation",
+    );
+
+    const nextStep: NextStep = {
+      kind: "terminate",
+      outcome: "failed",
+      reason:
+        "The requested filesystem effect was not authorized and no safe v0.1 alternative remains.",
+    };
+    const decision = createDecision<DemoFileDecisionIntent>({
+      executionId: invocation.context.executionId,
+      goalId: invocation.context.goalId,
+      correlationId: invocation.context.correlationId,
+      causationId: outcome.id,
+      producer: { kind: "capability", capability: this.capability },
+      timestamp: this.now(),
+      selectedOption: {
+        id: "terminate-after-policy-rejection",
+        description: "Stop without attempting the denied effect.",
+        intent: {
+          kind: "no-action",
+          reason: evaluation.reason,
+        },
+      },
+      alternatives: [
+        {
+          id: "await-future-authorized-request",
+          description:
+            "A future execution may provide a request that satisfies policy.",
+          intent: {
+            kind: "no-action",
+            reason:
+              "The deterministic v0.1 fixture has no in-execution approval or recovery path.",
+          },
+        },
+      ],
+      decisiveEvidence: [
+        {
+          id: outcome.id,
+          kind: "record",
+          description: "Rejected Action outcome with no external effect",
+        },
+        {
+          id: evaluation.id,
+          kind: "policy",
+          description: evaluation.reason,
+        },
+      ],
+      decisiveConstraints: [
+        "A denied or approval-required effect cannot reach a connector.",
+        "The v0.1 policy-denial fixture has no authorized alternative.",
+      ],
+      rationale:
+        "Independent policy did not allow the selected effect. The rejected outcome confirms that no connector effect was attempted, so safe termination is required.",
+      nextStep,
+    });
+
+    return { output: decision, nextStep };
+  }
 }
 
 /**
- * Effect-free Phase 4 Action boundary. It exposes the selected request to the
- * next phase and waits; it never invokes a connector or mutates a filesystem.
+ * Phase 5 Action policy boundary. It authorizes or rejects the selected
+ * candidate but never invokes a connector or mutates a filesystem.
  */
 export class DeterministicActionCapability
   implements
     CapabilityImplementation<
       DemoFileDecision,
-      ActionRequest<DemoFileWriteParameters> | DemoFileDecision
+      | ActionRequest<DemoFileWriteParameters>
+      | DemoFileDecision
+      | DemoFilePolicyOutcome
     >
 {
   readonly capability = "action" as const;
+  private readonly now: () => string;
+  private readonly policyEngine: PolicyEngine;
 
-  invoke(
+  constructor(options: DeterministicCapabilityOptions = {}) {
+    this.now = options.now ?? nowIso;
+    this.policyEngine = options.policyEngine ?? new V01PolicyEngine();
+  }
+
+  async invoke(
     invocation: CapabilityInvocation<DemoFileDecision>,
-  ): CapabilityResult<
-    ActionRequest<DemoFileWriteParameters> | DemoFileDecision
+  ): Promise<
+    CapabilityResult<
+      | ActionRequest<DemoFileWriteParameters>
+      | DemoFileDecision
+      | DemoFilePolicyOutcome
+    >
   > {
     throwIfAborted(invocation.signal);
     const decision = requireDecision(invocation.input, invocation);
@@ -398,14 +523,83 @@ export class DeterministicActionCapability
       invocation,
       decision.id,
     );
+    const evaluation = await evaluatePolicy(
+      this.policyEngine,
+      {
+        point: "effect",
+        executionId: invocation.context.executionId,
+        goalId: invocation.context.goalId,
+        correlationId: invocation.context.correlationId,
+        causationId: actionRequest.id,
+        producer: { kind: "capability", capability: this.capability },
+        context: invocation.context,
+        actionRequest,
+      },
+      { now: this.now, signal: invocation.signal },
+    );
+
+    if (evaluation.result !== "allow") {
+      const timestamp = this.now();
+      const outcome = createOutcome<DemoFilePolicyOutcomeData>({
+        executionId: invocation.context.executionId,
+        goalId: invocation.context.goalId,
+        correlationId: invocation.context.correlationId,
+        causationId: evaluation.id,
+        producer: { kind: "capability", capability: this.capability },
+        timestamp,
+        actionRequestId: actionRequest.id,
+        status: "rejected",
+        effectStatus: "none",
+        startedAt: timestamp,
+        endedAt: timestamp,
+        data: { policyEvaluation: evaluation },
+        error: {
+          code:
+            evaluation.result === "require"
+              ? "POLICY_AUTHORIZATION_REQUIRED"
+              : "POLICY_DENIED",
+          message: evaluation.reason,
+        },
+      });
+      return {
+        output: outcome,
+        nextStep: {
+          kind: "invoke",
+          target: "decision",
+          reason:
+            "Decision must evaluate the rejected zero-effect policy outcome.",
+        },
+        policyEvaluations: [evaluation],
+      };
+    }
+
+    const authorizedRequest = createActionRequest<DemoFileWriteParameters>({
+      executionId: invocation.context.executionId,
+      goalId: invocation.context.goalId,
+      correlationId: invocation.context.correlationId,
+      causationId: evaluation.id,
+      producer: { kind: "capability", capability: this.capability },
+      timestamp: this.now(),
+      actionType: actionRequest.actionType,
+      target: actionRequest.target,
+      connectorId: actionRequest.connectorId,
+      parameters: actionRequest.parameters,
+      authorization: {
+        policyId: evaluation.policyId,
+        evaluationId: evaluation.id,
+      },
+      idempotencyKey: actionRequest.idempotencyKey,
+      timeoutMs: actionRequest.timeoutMs,
+    });
     return {
-      output: actionRequest,
+      output: authorizedRequest,
       nextStep: {
         kind: "wait",
         reason:
-          "The effect candidate is staged but remains unauthorized until the Phase 5 policy gate evaluates it.",
-        resumeOn: POLICY_EVALUATION_RESUME_EVENT,
+          "Policy allowed the exact request, but no Action connector is enabled before Phase 6.",
+        resumeOn: ACTION_CONNECTOR_RESUME_EVENT,
       },
+      policyEvaluations: [evaluation],
     };
   }
 }
@@ -451,7 +645,7 @@ export function createDeterministicPandaCapabilities(
   const analysis = new DeterministicAnalysisCapability(options);
   const network = new DeterministicNetworkCapability();
   const decision = new DeterministicDecisionCapability(options);
-  const action = new DeterministicActionCapability();
+  const action = new DeterministicActionCapability(options);
 
   return {
     perception,
@@ -691,6 +885,18 @@ function requireObservation(
   }
   assertRecordIdentity(value, invocation, "Observation");
   return value as unknown as Observation<unknown>;
+}
+
+function isPolicyOutcome(value: unknown): value is DemoFilePolicyOutcome {
+  return (
+    isRecord(value) &&
+    value.kind === "outcome" &&
+    value.status === "rejected" &&
+    value.effectStatus === "none" &&
+    isRecord(value.data) &&
+    isRecord(value.data.policyEvaluation) &&
+    value.data.policyEvaluation.kind === "policy-evaluation"
+  );
 }
 
 function requireAssessment(
