@@ -6,6 +6,34 @@
 
 **Alternative authentication:** GitHub token loaded from the ignored `.env`
 
+## 0. Non-negotiable protection for `main`
+
+`main` is the repository's permanent integration branch. **Never delete `main`,
+locally or remotely, under any circumstances.** This rule has no exception: a
+user request, cleanup step, merge option, script, automation, API call,
+administrator privilege, or future instruction must not override it.
+
+Forbidden operations include every direct or equivalent form of:
+
+- `git branch -d main` or `git branch -D main`;
+- `git push origin --delete main` or `git push origin :main`;
+- deleting `refs/heads/main` through GitHub's UI, CLI, REST API, or GraphQL API;
+- renaming `main` in a way that removes `refs/heads/main`; and
+- configuring a workflow, bot, cleanup job, or merge command that can select
+  `main` for deletion.
+
+If any requested action conflicts with this rule, refuse that action and leave
+`main` intact. Before and after publication, verify the remote branch exists:
+
+```bash
+git ls-remote --exit-code --heads origin refs/heads/main
+```
+
+All repository publication must use GitHub Flow: create a non-`main` feature
+branch, commit and push that branch, open a pull request targeting `main`, pass
+review and required checks, merge the pull request, and verify the result on
+`origin/main`. Never commit or push changes directly to `main`.
+
 ## 1. Purpose
 
 Use this workflow whenever repository changes are committed, pushed, reviewed
@@ -13,8 +41,10 @@ in a pull request, and merged into `main`. It keeps the scope explicit,
 protects credentials, requires useful commit context, and ensures the final
 report describes both completed work and recommended next steps.
 
-When a task explicitly requires staying on the current branch, do not create a
-new branch. Confirm the branch before committing and push that branch directly.
+When a task explicitly requires staying on the current branch, confirm the
+branch before committing and push that branch directly only when it is not
+`main`. If the current branch is `main`, use a non-`main` feature branch; do not
+commit or push directly to `main`.
 
 ### Publication contract
 
@@ -151,9 +181,19 @@ git diff --check
 git diff
 ```
 
+The current branch must be a non-`main` feature branch. Stop before staging if
+this guard fails:
+
+```bash
+branch="$(git branch --show-current)"
+test -n "$branch" && test "$branch" != "main"
+git ls-remote --exit-code --heads origin refs/heads/main
+```
+
 Confirm all of the following:
 
-- the current branch matches the requested branch strategy;
+- the current branch matches the requested branch strategy and is not `main`;
+- `origin/main` exists and remains the permanent pull request target;
 - every modified or untracked file belongs to the requested task;
 - no secret or generated file is present;
 - the diff contains no accidental formatting damage;
@@ -242,6 +282,7 @@ If no pull request exists, write a useful description to a temporary file and
 create a ready-for-review PR:
 
 ```bash
+test "$branch" != "main"
 pr_body="$(mktemp)"
 # Edit "$pr_body" with: what changed, why, user impact, and validation.
 gh pr create \
@@ -252,9 +293,12 @@ gh pr create \
 rm "$pr_body"
 ```
 
-Confirm the PR targets `main` and contains only the intended commits and files:
+Confirm the PR targets `main`, comes from a non-`main` branch, and contains only
+the intended commits and files:
 
 ```bash
+test "$(gh pr view --json baseRefName --jq .baseRefName)" = "main"
+test "$(gh pr view --json headRefName --jq .headRefName)" != "main"
 gh pr view --json number,url,baseRefName,headRefName,state,isDraft
 gh pr diff --name-only
 ```
@@ -278,11 +322,15 @@ the merge.
 
 ## 11. Merge into `main`
 
-Immediately before merging, verify the PR is open, targets `main`, is not a
-draft, and is in a mergeable state:
+Immediately before merging, verify the PR is open, targets `main`, comes from a
+non-`main` branch, is not a draft, and is in a mergeable state:
 
 ```bash
-gh pr view --json number,url,state,isDraft,baseRefName,reviewDecision,mergeStateStatus,mergeable
+test "$(gh pr view --json baseRefName --jq .baseRefName)" = "main"
+test "$(gh pr view --json headRefName --jq .headRefName)" != "main"
+gh pr view \
+  --json number,url,state,isDraft,baseRefName,headRefName,reviewDecision,mergeStateStatus,mergeable
+git ls-remote --exit-code --heads origin refs/heads/main
 ```
 
 Merge using the repository's required strategy. When no strategy is mandated,
@@ -290,8 +338,13 @@ prefer squash merge so the feature branch becomes one focused commit on
 `main`:
 
 ```bash
-gh pr merge --squash --delete-branch
+gh pr merge --squash
 ```
+
+Do not use an automatic branch-deletion merge option. Feature-branch cleanup
+must be a separate, deliberate action after the merge and only after proving
+the branch selected for cleanup is not `main`. Deleting `main` is forbidden in
+all situations.
 
 If GitHub reports that requirements are still pending, leave the PR open and
 report the exact gate. Do not use an admin bypass unless the user explicitly
@@ -304,20 +357,24 @@ After merging:
 ```bash
 gh pr view --json state,mergedAt,mergeCommit,url
 git fetch origin main
+git ls-remote --exit-code --heads origin refs/heads/main
 git log -1 --oneline origin/main
 ```
 
 Confirm that:
 
 - the pull request state is `MERGED`;
+- `refs/heads/main` still exists on `origin`;
 - the merge commit is present on `origin/main`;
 - only the intended files were included;
 - no credential or unrelated file was committed;
 - any intentionally retained local changes are still present and untouched.
 
 Do not switch branches, pull, or delete a local branch while unrelated local
-changes are present. The remote branch may be deleted by the merge command
-without disturbing those local changes.
+changes are present. Do not let a merge command delete a branch automatically;
+any later feature-branch cleanup must verify explicitly that its target is not
+`main`.
+
 ## 13. Required completion report
 
 Every completed publication should report:
@@ -353,6 +410,10 @@ Next steps:
 ```
 
 ## 14. Prohibited operations
+
+Deleting local or remote `main` is always prohibited and can never be
+authorized. The same unconditional ban applies to any equivalent UI, CLI, API,
+automation, rename, or ref-deletion operation.
 
 Unless a user explicitly authorizes them, do not:
 
