@@ -2,57 +2,67 @@
 
 ## Current status
 
-- **Latest completed phase:** Phase 2 — Build the execution and trace foundation
+- **Latest completed phase:** Phase 3 — Add the dynamic coordinator
 - **Completed:** 2026-08-10
-- **Next phase:** Phase 3 — Add the dynamic coordinator
-- **Phase plan:** [Phase 2 Plan](plans/phase-2.md)
+- **Next phase:** Phase 4 — Implement deterministic PANDA capabilities
+- **Phase plan:** [Phase 3 Plan](plans/phase-3.md)
 - **Frozen baseline:** [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md)
 
-## Phase 2 completion
+## Phase 3 completion
 
 ### What was completed
 
-- Added the `ExecutionStore` port, typed store errors, and process-local
-  `InMemoryExecutionStore` to `@panda/core`.
-- Added create, retrieve, list, and update operations for independent canonical
-  executions.
-- Added append-only trace storage with assigned sequence numbers starting at 1
-  independently for every execution.
-- Added validation for unknown executions, missing causes, cross-execution
-  causes, duplicate trace IDs, caller-supplied sequences, and execution record
-  identity changes.
-- Added ingress and egress snapshots so caller mutation cannot rewrite retained
-  execution state or trace history.
-- Added six focused execution-store tests and retained the current application
-  path, five Phase 1 shared tests, and four legacy core runtime tests.
+- Added capability invocation and result contracts, the `CapabilityRegistry`
+  port, and an ownership-safe in-memory registry to `@panda/core`.
+- Added an execution-scoped coordinator that uses capability-produced
+  `NextStep` values instead of a fixed route.
+- Added support for self-transitions, non-adjacent invocation, wait/resume, and
+  successful, failed, or cancelled termination.
+- Passed each capability product to its dynamically selected successor and
+  preserved prior invocation IDs in resumed execution context.
+- Recorded invocation start/completion, transition request, transition commit
+  or rejection, wait, structured failure, and termination in one causal trace.
+- Rejected unknown capabilities, duplicate or non-canonical registrations,
+  malformed results, stale execution updates, and overlapping coordination of
+  the same execution.
+- Enforced configurable invocation limits, execution deadlines, and
+  cancellation signals without adding scenario-specific routing.
+- Retained the legacy application path unchanged for the additive migration.
 
 ### Key technical decisions
 
-- The port lives in `@panda/core` and consumes the stable contracts exported by
-  `@panda/shared`.
-- Store operations return snapshots; no mutable reference into retained state
-  or trace history is exposed.
-- `getExecution` returns `undefined` for lookup semantics, while trace and
-  mutation operations reject unknown execution IDs explicitly.
-- Sequence assignment is store-owned and per execution; pre-sequenced records
-  are rejected instead of renumbered silently.
-- A cause must already exist. Unknown causal IDs and causal IDs belonging to
-  another execution have distinct errors.
-- Listing retains deterministic creation order, while durable query ordering
-  and pagination remain deferred.
+- The registry and coordinator live in `@panda/core` and consume the Phase 1
+  contracts plus the Phase 2 `ExecutionStore` port.
+- A canonical execution must select its initial active capability. Each
+  committed `invoke` transition selects the next active capability and passes
+  the previous output as its input.
+- A `wait` transition keeps the source capability selected. A later call can
+  resume that same execution, and invocation history is reconstructed from its
+  stored trace.
+- Requested and committed or rejected transitions are distinct canonical
+  records and distinct trace entries. Their causation links continue from the
+  invocation through the transition outcome to the next material record.
+- Invocation errors and runtime bounds become structured `Failure` data and
+  explicit terminal records; unknown targets and exhausted invocation budgets
+  also retain rejected transition evidence.
+- The coordinator compares material execution state after every asynchronous
+  invocation. A stale result is recorded as rejected and cannot overwrite the
+  newer state.
+- Automatic event matching for `resumeOn`, policy decisions, retry routing,
+  durable scheduling, and capability-specific products remain later phases.
 
 ### Validation results
 
 - `git diff --check` — passed.
-- Local Markdown link/path inspection — passed; 77 local links across 33
+- Local Markdown link/path inspection — passed; 88 local links across 36
   Markdown files checked.
-- `pnpm --filter @panda/core test` — passed; 6 execution-store tests and 4
-  legacy core runtime tests passed.
+- `pnpm --filter @panda/core test` — passed; 22 core tests passed, including
+  eight focused Phase 3 tests with four nested failure/boundary cases, six
+  execution-store tests, and four legacy runtime tests.
 - `pnpm build` — passed for all workspace projects.
 - `pnpm typecheck` — passed for all workspace projects.
-- `pnpm test` — passed; 5 shared contract tests, 6 execution-store tests, and 4
-  legacy core runtime tests passed, and all remaining package scripts completed
-  successfully.
+- `pnpm test` — passed; 5 shared contract tests and 22 core tests passed, and
+  all remaining package scripts completed successfully.
 - Format and lint — not run because the repository defines no format or lint
   script or configured tool.
 
@@ -60,22 +70,23 @@ The dashboard build emitted the existing Node experimental warning while
 loading the TypeScript Tailwind configuration through CommonJS; the build
 completed successfully.
 
-### Remaining Phase 2 work
+### Remaining Phase 3 work
 
-None. Phase 2 intentionally does not switch runtime callers to the canonical
-store; the legacy model stays operational until the additive migration reaches
-the application path and Phase 10 removes it.
+None. Phase 3 intentionally does not wire the coordinator into runtime callers
+or implement scenario behavior. Those responsibilities remain ordered behind
+the deterministic capabilities and later daemon integration phases.
 
-## Previous phase
+## Previous phases
 
-Phases 0 and 1 froze the v0.1 product baseline and added the canonical contract
-family. Their full completion records remain in the
-[Phase 0 Plan](plans/phase-0.md) and [Phase 1 Plan](plans/phase-1.md).
+Phases 0 through 2 froze the v0.1 product baseline, added the canonical
+contract family, and established independent in-memory execution state with
+append-only causal traces. Their full completion records remain in the
+[Phase 0 Plan](plans/phase-0.md), [Phase 1 Plan](plans/phase-1.md), and
+[Phase 2 Plan](plans/phase-2.md).
 
 ## Next phase
 
-Phase 3 adds a `CapabilityRegistry` and execution-scoped coordinator. It must
-invoke dynamically selected capabilities, consume `invoke`, `wait`, and
-`terminate` next steps, validate and record transitions, convert invocation
-errors into structured failures, reject stale or unknown targets, and enforce
-invocation, deadline, and cancellation bounds without encoding a fixed route.
+Phase 4 implements deterministic Perception, Analysis, Network, Decision, and
+Action capabilities. Complete and incomplete inputs must produce different
+routes, decisions must retain evidence and rationale, and the filesystem
+scenario must remain effect-free until the Phase 5 policy gate is complete.

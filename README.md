@@ -138,8 +138,9 @@ panda/
 - `apps/cli`: `panda` command surface powered by `commander`.
 - `apps/daemon`: local Fastify daemon with HTTP API and WebSocket events.
 - `apps/dashboard`: React, Vite, TypeScript, Tailwind dashboard.
-- `packages/core`: observation bus, scheduler, action dispatcher, connector
-  base classes, memory subscriber, state transition engine, sessions, config.
+- `packages/core`: canonical execution store, capability registry, dynamic
+  execution coordinator, plus the legacy observation bus, scheduler, action
+  dispatcher, connectors, sessions, and configuration.
 - `packages/graph`: compatibility wrapper that runs through the event-driven
   runtime instead of a fixed reasoning loop.
 - `packages/sdk`: typed daemon client plus public observation/action types.
