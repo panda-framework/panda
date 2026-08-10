@@ -28,4 +28,7 @@
 
 ## Project Operations
 
-- [Project Expenses](project-expenses.md) — current recurring costs, local-first hosting baseline, potential future expenses, and spending controls
+- [Project Expenses](project-expenses.md) — current recurring costs, local-first
+  hosting baseline, potential future expenses, and spending controls
+- [Documentation License](license.md) — CC BY 4.0 permissions, attribution
+  requirements, examples, scope, and exclusions
