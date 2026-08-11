@@ -11,13 +11,13 @@ records.
 
 ## 1. Current project status
 
-Phases 0 through 10 are complete. Phase 10 removed the transitional
-session/seven-state scaffold, and Phase 11 release hardening is next. The daemon
+Phases 0 through 11 and the local v0.1 release baseline are complete. The daemon
 owns process-local Goal and Execution stores, dynamic coordination,
 deterministic capabilities, transition and effect policy, a real sandboxed
 filesystem Action connector, and independent effect verification. The API,
 SDK, dashboard, and WebSocket stream expose the same retained canonical
-records.
+records. The [v0.1 Release Profile](v0.1-release-profile.md) is the authoritative
+support, durability, sandbox, requirements, and limitation record.
 
 The executable v0.1 baseline is intentionally narrow:
 
@@ -30,7 +30,7 @@ The executable v0.1 baseline is intentionally narrow:
 | Verification | A separate observer reads the environment before Analysis can mark the Goal achieved |
 | Trace | Material records are stored append-only with per-execution sequence, correlation, and causation |
 | Interfaces | Canonical HTTP execution resources, typed SDK methods, WebSocket commit events, and a trace dashboard |
-| Tests | Five shared, 62 core, three SDK, five daemon, and five dashboard executable tests |
+| Tests | Five shared, 62 core, three SDK, 13 daemon, and five dashboard executable tests, including the eight-case release matrix |
 
 Memory is a persistence responsibility. Planning, understanding, and reflection
 are techniques that may be used inside Analysis or Decision; none is a runtime
@@ -43,13 +43,12 @@ current validation baseline.
 
 - Git
 - Node.js 20 or newer
-- pnpm 9.x
+- pnpm 9.15.1
 - A modern browser for dashboard work
 - Optional GitHub CLI (`gh`) for the documented publication workflow
 
-The repository does not pin Node or pnpm through `.nvmrc`, `.node-version`, an
-`engines` field, or `packageManager`. The documented baseline was verified with
-Node.js `v23.1.0` and pnpm `9.15.1`.
+The root package records Node.js `>=20` in `engines` and pins pnpm `9.15.1` in
+`packageManager`. The release workflow was also verified with Node.js `v23.1.0`.
 
 ```bash
 node --version

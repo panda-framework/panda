@@ -16,6 +16,7 @@ independently observed before the Goal can succeed.
 - Documentation index: [`docs/README.md`](./docs/README.md)
 - Developer onboarding: [`docs/developer-onboarding.md`](./docs/developer-onboarding.md)
 - Framework requirements: [`docs/requirements.md`](./docs/requirements.md)
+- v0.1 release profile: [`docs/v0.1-release-profile.md`](./docs/v0.1-release-profile.md)
 
 ## The five capabilities
 
@@ -89,7 +90,7 @@ panda/
 
 ## Quick start
 
-Prerequisites: Node.js 20 or newer and pnpm 9.x.
+Prerequisites: Node.js 20 or newer and pnpm 9.15.1.
 
 ```bash
 pnpm install --frozen-lockfile
