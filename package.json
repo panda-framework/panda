@@ -1,7 +1,7 @@
 {
   "name": "panda",
   "version": "1.0.0",
-  "description": "PANDA is a TypeScript intelligence runtime built around observations, actions, connectors, and scheduler-driven state transitions.",
+  "description": "PANDA is a TypeScript intelligence runtime built around goals, dynamic capability routing, governed actions, and verified outcomes.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,7 +15,6 @@
   },
   "keywords": [
     "agents",
-    "langgraph",
     "framework",
     "typescript"
   ],
@@ -36,6 +35,7 @@
     "tronweb": "^6.4.0"
   },
   "devDependencies": {
+    "@panda/sdk": "workspace:*",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

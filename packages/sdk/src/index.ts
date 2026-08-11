@@ -3,8 +3,6 @@ import type {
   PandaApiErrorResponse,
   PandaExecutionCreateInput,
   PandaExecutionView,
-  PandaRunInput,
-  PandaSession,
   StoredPandaTraceRecord,
 } from "@panda/shared";
 
@@ -12,16 +10,11 @@ export type {
   Assessment,
   Goal,
   Outcome,
-  PandaAction,
-  PandaActionResult,
   PandaApiErrorDetail,
   PandaApiErrorResponse,
   PandaExecution,
   PandaExecutionCreateInput,
   PandaExecutionView,
-  PandaObservation,
-  ObservationPriority,
-  PandaStateName,
   StoredPandaTraceRecord,
 } from "@panda/shared";
 
@@ -74,22 +67,6 @@ export class PandaClient {
     return this.request<StoredPandaTraceRecord[]>(
       `/executions/${encodeURIComponent(id)}/trace`,
     );
-  }
-
-  async listSessions() {
-    return this.request<PandaSession[]>("/sessions");
-  }
-
-  async getSession(id: string) {
-    return this.request<PandaSession>(`/sessions/${encodeURIComponent(id)}`);
-  }
-
-  /** @deprecated Use createExecution. */
-  async run(input: PandaRunInput | PandaExecutionCreateInput) {
-    return this.request<PandaExecutionView>("/runs", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {

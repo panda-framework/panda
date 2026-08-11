@@ -30,6 +30,7 @@
 - [Phase 7 Plan](plans/phase-7.md) — independent effect observation, goal-criteria verification, and closed-loop termination
 - [Phase 8 Plan](plans/phase-8.md) — daemon-owned canonical runtime, execution API, typed SDK, and trace event streaming
 - [Phase 9 Plan](plans/phase-9.md) — canonical execution list, operator insights, and sequence-stable causal trace dashboard
+- [Phase 10 Plan](plans/phase-10.md) — removal of the graph, sessions, seven-state identities, and deprecated run surfaces
 - [GitHub Pull Request Workflow](github-push-workflow.md) — credential-safe validation, commit, push, review, merge, verification, and guarded feature-branch cleanup
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
 

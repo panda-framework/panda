@@ -182,20 +182,13 @@ test("invalid input and unknown executions return structured client errors", asy
   });
 });
 
-test("deprecated runs route delegates to the canonical execution service", async (context) => {
-  const { app, runtime } = await withDaemon(context);
+test("the retired runs route is not exposed", async (context) => {
+  const { app } = await withDaemon(context);
   const response = await app.inject({
     method: "POST",
     url: "/runs",
-    payload: { payload: { path: "compat.txt", content: "compatibility" } },
+    payload: { payload: { path: "legacy.txt", content: "retired" } },
   });
-  const created = response.json<PandaExecutionView>();
 
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.headers.deprecation, "true");
-  assert.equal(created.status, "succeeded");
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(runtime.getExecutionView(created.executionId))),
-    created,
-  );
+  assert.equal(response.statusCode, 404);
 });

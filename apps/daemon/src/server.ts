@@ -26,13 +26,6 @@ const executionSchema = z
   })
   .strict();
 
-const legacyRunSchema = z
-  .object({
-    sessionId: z.string().optional(),
-    input: z.string().min(1),
-  })
-  .strict();
-
 export interface PandaDaemonOptions extends PandaDaemonRuntimeOptions {
   readonly runtime?: PandaDaemonRuntime;
 }
@@ -96,25 +89,6 @@ export async function createDaemon(
     const { id } = request.params as { id: string };
     const trace = runtime.getTrace(id);
     return trace ?? reply.code(404).send(notFoundError(id));
-  });
-
-  app.post("/runs", async (request, reply) => {
-    const canonical = executionSchema.safeParse(request.body);
-    if (canonical.success) {
-      reply.header("deprecation", "true");
-      reply.header("link", '</executions>; rel="successor-version"');
-      return runtime.createExecution(canonical.data);
-    }
-    const legacy = legacyRunSchema.safeParse(request.body);
-    if (!legacy.success) {
-      return reply.code(400).send(validationError(canonical.error));
-    }
-    reply.header("deprecation", "true");
-    reply.header("link", '</executions>; rel="successor-version"');
-    return runtime.createExecution({
-      source: "legacy-run-api",
-      payload: { content: legacy.data.input },
-    });
   });
 
   app.get("/events", { websocket: true }, (connection) => {
