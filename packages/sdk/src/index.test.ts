@@ -50,6 +50,35 @@ test("posts the typed execution request", async (context) => {
   });
 });
 
+test(
+  "sends a configured bearer token without adding it to request bodies",
+  async (context) => {
+    let request: { url: string; init?: RequestInit } | undefined;
+    context.mock.method(globalThis, "fetch", async (
+      url: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      request = { url: String(url), init };
+      return Response.json([]);
+    });
+    const token = "sdk-phase-13-token-with-32-characters";
+    const client = new PandaClient({
+      baseUrl: "http://daemon.test",
+      apiToken: token,
+    });
+
+    await client.listExecutions();
+
+    const headers = new Headers(request?.init?.headers);
+    assert.equal(headers.get("authorization"), `Bearer ${token}`);
+    assert.equal(request?.init?.body, undefined);
+    assert.throws(
+      () => new PandaClient({ apiToken: " " }),
+      /must not be empty/,
+    );
+  },
+);
+
 test("preserves structured daemon errors", async (context) => {
   context.mock.method(globalThis, "fetch", async () =>
     Response.json(

@@ -34,6 +34,7 @@
 - [Phase 10 Plan](plans/phase-10.md) — removal of the graph, sessions, seven-state identities, and deprecated run surfaces
 - [Phase 11 Plan](plans/phase-11.md) — end-to-end release matrix, support profile, requirements mapping, and release validation
 - [Phase 12 Plan](plans/phase-12.md) — post-v0.1 durable local state, startup validation, and safe restart recovery
+- [Phase 13 Plan](plans/phase-13.md) — authenticated API principals, exact CORS origins, principal-bound effect policy, and guarded network exposure
 - [GitHub Pull Request Workflow](github-push-workflow.md) — credential-safe validation, commit, push, review, merge, verification, and guarded feature-branch cleanup
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
 

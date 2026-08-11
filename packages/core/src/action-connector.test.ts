@@ -53,6 +53,7 @@ async function authorizedFixture(
     producer,
     timestamp: fixedTime,
     activeCapability: "action",
+    principal: { id: "phase-6-service", type: "service" },
     invocationHistory: [],
     values: {},
   });

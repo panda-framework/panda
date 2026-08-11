@@ -11,15 +11,17 @@ records.
 
 ## 1. Current project status
 
-Phases 0 through 11 and the local v0.1 release baseline are complete. Phase 12
-adds the first post-v0.1 increment. The daemon owns durable local Goal and
-Execution stores, dynamic coordination,
+Phases 0 through 11 and the local v0.1 release baseline are complete. Phases 12
+and 13 add post-v0.1 durability and authenticated API-boundary increments. The
+daemon owns durable local Goal and Execution stores, dynamic coordination,
 deterministic capabilities, transition and effect policy, a real sandboxed
 filesystem Action connector, and independent effect verification. The API,
 SDK, dashboard, and WebSocket stream expose the same retained canonical
-records. The [v0.1 Release Profile](v0.1-release-profile.md) remains the
-authoritative frozen v0.1 record; the [Phase 12 Plan](plans/phase-12.md) defines
-the current durability and restart boundary.
+records. Optional bearer mode binds new work to one service principal, and the
+process refuses unauthenticated non-loopback exposure. The
+[v0.1 Release Profile](v0.1-release-profile.md) remains the authoritative frozen
+v0.1 record; the [Phase 13 Plan](plans/phase-13.md) defines the current API trust
+boundary.
 
 The current executable development baseline remains intentionally narrow:
 
@@ -32,7 +34,8 @@ The current executable development baseline remains intentionally narrow:
 | Verification | A separate observer reads the environment before Analysis can mark the Goal achieved |
 | Trace | Material records are stored append-only with per-execution sequence, correlation, and causation |
 | Interfaces | Canonical HTTP execution resources, typed SDK methods, WebSocket commit events, and a trace dashboard |
-| Tests | Shared, core, SDK, daemon, and dashboard executable suites include the eight-case release matrix plus file-store and restart recovery coverage |
+| Security | Loopback development uses `panda-local`; optional bearer mode resolves one service principal, exact CORS origins are enforced, and unauthenticated non-loopback startup is rejected |
+| Tests | Shared, core, SDK, daemon, and dashboard executable suites include the eight-case release matrix, restart recovery, and API security coverage |
 
 Memory is a persistence responsibility. Planning, understanding, and reflection
 are techniques that may be used inside Analysis or Decision; none is a runtime
@@ -80,14 +83,18 @@ declarations from ignored `dist/` directories.
 | `PANDA_PORT` | `4317` | Daemon listener port |
 | `PANDA_DATA_DIRECTORY` | `.panda` | Root of versioned state snapshots and per-execution effect sandboxes |
 | `PANDA_PERSISTENCE` | `file` | `file` retains local state across restart; `memory` is explicitly ephemeral |
+| `PANDA_API_TOKEN` | unset | Enables bearer protection for execution HTTP and WebSocket resources; must contain at least 32 non-whitespace characters |
+| `PANDA_API_PRINCIPAL_ID` | `panda-api-client` | Service-principal ID assigned to newly created Goals in bearer mode |
+| `PANDA_ALLOWED_ORIGINS` | local dashboard origins | Comma-separated exact HTTP(S) origins allowed by CORS; an empty value allows no browser origins |
 
 ```bash
 PANDA_HOST=127.0.0.1 PANDA_PORT=4317 pnpm dev
 ```
 
-The application does not load `.env` automatically. The current `.env.example`
-is for a local GitHub credential used by the publication workflow, not daemon
-configuration. Never print or commit populated `.env` files.
+The application does not load `.env` automatically. `.env.example` documents
+both the local GitHub publication credential and daemon security variable names;
+export only the values required by the process. Never print or commit populated
+`.env` files.
 
 `generated_wallets/` contains recovery phrases if the donation script is run.
 It is ignored secret material: do not commit, paste, log, or share it. Avoid
@@ -121,6 +128,28 @@ curl \
   --data '{"payload":{"path":"proof.txt","content":"PANDA v0.1 completed"}}' \
   http://127.0.0.1:4317/executions
 ```
+
+The commands above use the default unauthenticated loopback mode and run as the
+explicit `panda-local` system principal. To exercise bearer mode, export a
+secret and principal before starting the daemon:
+
+```bash
+export PANDA_API_TOKEN="replace-with-a-secret-of-at-least-32-characters"
+export PANDA_API_PRINCIPAL_ID="developer"
+pnpm dev
+```
+
+Then authenticate execution resources:
+
+```bash
+curl \
+  --header "Authorization: Bearer $PANDA_API_TOKEN" \
+  http://127.0.0.1:4317/executions
+```
+
+`GET /health` remains public. The built-in dashboard has no bearer-token entry,
+so use it with the default loopback mode until browser login/session support is
+designed.
 
 Use the returned ID to inspect the retained trace:
 
@@ -192,6 +221,8 @@ Dashboard / custom caller
           |
       @panda/sdk
           |
+  bearer principal boundary
+          |
   POST /executions
           |
      Fastify daemon
@@ -213,6 +244,9 @@ Important properties:
   daemon-owned stores.
 - Each execution has distinct execution, goal, correlation, workspace, trace,
   and causation identities.
+- The authenticated or local system principal owns the Goal, reaches every
+  capability context, and is recorded in effect-policy evidence; credentials do
+  not enter canonical records.
 - The route is determined by capability results and policy, not by a fixed
   sequence.
 - Connector completion is an Outcome, not proof. Independent observation and
@@ -233,13 +267,20 @@ Important properties:
 | `GET` | `/executions/:id/trace` | Read its sequence-stable trace or structured `404` |
 | WebSocket | `/events` | Initial log event followed by committed `execution.recorded` events |
 
-The daemon enables permissive CORS and has no authentication. Keep it on
-loopback and do not expose it to an untrusted network.
+`/health` is public. When `PANDA_API_TOKEN` is set, every other listed HTTP and
+WebSocket resource requires a Bearer header. Missing, malformed, and incorrect
+credentials all return `401 AUTHENTICATION_REQUIRED`. Without a token, the
+process accepts only a loopback listener. CORS defaults to
+`http://127.0.0.1:5173` and `http://localhost:5173`; configure exact additional
+origins with `PANDA_ALLOWED_ORIGINS`.
 
 ### SDK
 
 ```ts
-const client = new PandaClient({ baseUrl: "http://127.0.0.1:4317" });
+const client = new PandaClient({
+  baseUrl: "http://127.0.0.1:4317",
+  apiToken: process.env.PANDA_API_TOKEN,
+});
 
 await client.health();
 const execution = await client.createExecution({
@@ -251,8 +292,8 @@ await client.getExecutionTrace(execution.executionId);
 ```
 
 `PandaRequestError` preserves the daemon's structured error code, message,
-optional issues, and HTTP status. Retries, cancellation, timeouts, and a
-WebSocket client are not implemented.
+optional issues, and HTTP status. `apiToken` is sent only as a Bearer header.
+Retries, cancellation, timeouts, and a WebSocket client are not implemented.
 
 ### Dashboard and CLI
 
@@ -384,7 +425,9 @@ cleanup guards pass.
 
 - The default file store is single-process and local; it has no database,
   backup, replication, cross-file transaction, or multi-writer coordination.
-- The API has no authentication or production-safe network exposure.
+- API authentication supports one static bearer principal only; there is no
+  TLS, browser login, roles/scopes, token issuance/rotation, authentication
+  audit store, or per-resource multi-tenant authorization.
 - Endpoint configuration is not shared across daemon, SDK, CLI, and dashboard.
 - Only the bounded filesystem Action is implemented as a real effect.
 - There is no LLM/provider integration, durable retry, automatic wait-event
@@ -412,6 +455,20 @@ curl http://127.0.0.1:4317/health
 ```
 
 `doctor` currently uses the SDK's default endpoint.
+
+### An API request returns `AUTHENTICATION_REQUIRED`
+
+The daemon was started with `PANDA_API_TOKEN`. Pass the same value through the
+SDK `apiToken` option or an `Authorization: Bearer ...` header. Do not put the
+token in a URL, request body, trace, or committed configuration file. Health is
+available without authentication and reports the active mode.
+
+### Non-loopback startup fails before listening
+
+`PANDA_HOST` names a non-loopback interface but `PANDA_API_TOKEN` is absent or
+invalid. Configure a strong bearer token before binding outside loopback. This
+guard does not provide TLS; use a trusted TLS terminator for traffic that leaves
+the host.
 
 ### A local port is already in use
 

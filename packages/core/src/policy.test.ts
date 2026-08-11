@@ -57,6 +57,7 @@ function effectFixture(
     producer,
     timestamp: fixedTime,
     activeCapability: "action",
+    principal: { id: "phase-5-service", type: "service" },
     invocationHistory: [],
     values: {},
   });
@@ -127,6 +128,8 @@ test("allows and records the exact contained v0.1 effect without retaining conte
   assert.equal(evaluation.causationId, request.actionRequest.id);
   assert.equal(evaluation.inputs.relativePath, "proof.txt");
   assert.equal(evaluation.inputs.contentBytes, 20);
+  assert.equal(evaluation.inputs.principalId, "phase-5-service");
+  assert.equal(evaluation.inputs.principalType, "service");
   assert.equal("content" in evaluation.inputs, false);
   assert.equal(
     JSON.stringify(evaluation.inputs).includes("PANDA v0.1 completed"),
@@ -237,6 +240,17 @@ test("denies unsupported, escaping, malformed, and oversized effect candidates",
         },
       },
       reason: /policy context identity/,
+    },
+    {
+      name: "missing effect principal",
+      request: {
+        ...mismatchedContext,
+        context: {
+          ...mismatchedContext.context,
+          principal: undefined,
+        },
+      },
+      reason: /requires a valid authenticated or runtime principal/,
     },
   ];
 

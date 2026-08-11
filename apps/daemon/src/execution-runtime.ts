@@ -35,9 +35,15 @@ import {
   type PandaExecution,
   type PandaExecutionCreateInput,
   type PandaExecutionView,
+  type PrincipalReference,
 } from "@panda/shared";
 
 export type PandaPersistenceMode = "file" | "memory";
+
+const DEFAULT_RUNTIME_PRINCIPAL = Object.freeze({
+  id: "panda-daemon",
+  type: "system",
+} as const satisfies PrincipalReference);
 
 export type PandaDaemonRuntimeErrorCode =
   | "PERSISTENCE_MODE_INVALID"
@@ -130,6 +136,7 @@ export class PandaDaemonRuntime {
 
   async createExecution(
     input: PandaExecutionCreateInput,
+    principal: PrincipalReference = DEFAULT_RUNTIME_PRINCIPAL,
   ): Promise<PandaExecutionView> {
     const timestamp = this.now();
     const executionId = createId("exe");
@@ -148,6 +155,10 @@ export class PandaDaemonRuntime {
       provenance: {
         kind: "external",
         sourceId: input.source ?? "daemon-api",
+        details: {
+          principalId: principal.id,
+          principalType: principal.type,
+        },
       },
       payload: input.payload,
     });
@@ -170,6 +181,7 @@ export class PandaDaemonRuntime {
       signal.id,
       input,
       timestamp,
+      principal,
     );
 
     this.executionStore.createExecution(execution);
@@ -204,6 +216,7 @@ export class PandaDaemonRuntime {
       executionId,
       input: signal,
       causationId: goalTrace.id,
+      principal,
     });
     return this.requireExecutionView(executionId);
   }
@@ -549,6 +562,7 @@ function createExecutionGoal(
   causationId: string,
   input: PandaExecutionCreateInput,
   timestamp: string,
+  principal: PrincipalReference,
 ): Goal {
   const content = input.payload.content;
   const contentBytes =
@@ -597,7 +611,7 @@ function createExecutionGoal(
     ],
     failureCriteria: [],
     status: "active",
-    owner: { id: "panda-daemon", type: "system" },
+    owner: principal,
     dependencyGoalIds: [],
   });
 }

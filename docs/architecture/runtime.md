@@ -31,3 +31,10 @@ flowchart TB
 ```
 
 The coordinator invokes; capabilities reason or transform; connectors cross external boundaries. A minimal embedded coordinator may be a few direct calls with in-memory ports. A daemon, durable scheduler, or distributed runtime is an optional implementation profile.
+
+The current daemon profile optionally authenticates execution HTTP and
+WebSocket calls with one static bearer credential. It resolves that credential
+to a service principal before creating canonical work, restricts CORS to exact
+origins, and refuses unauthenticated non-loopback startup. These are daemon
+adapter choices; embedded runtimes may supply a principal through another trust
+boundary.

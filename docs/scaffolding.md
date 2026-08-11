@@ -20,6 +20,8 @@ This document records the scaffold that exists now.
   observer.
 - Fastify daemon with canonical execution HTTP endpoints and a WebSocket trace
   stream at `/events`.
+- Optional static bearer authentication that binds API work to one service
+  principal, exact CORS origin controls, and a non-loopback exposure guard.
 - Typed SDK for health, execution create/list/detail, and trace reads.
 - React/Vite/Tailwind dashboard for creating and inspecting executions, Goals,
   record-derived answers, and causal timelines.
@@ -40,15 +42,19 @@ Neither path replays Action. The in-memory adapters remain available for
 intentionally ephemeral operation, and a database or broker can replace either
 adapter without changing canonical contracts.
 
-The daemon is unauthenticated and intended only for a loopback development
-environment. The sole v0.1 real effect writes UTF-8 content to a relative path
-inside a per-execution sandbox after policy authorization.
+The daemon defaults to unauthenticated loopback development as the explicit
+`panda-local` principal. Static bearer mode protects execution and WebSocket
+resources and binds new Goals and effects to one configured service principal.
+The process refuses unauthenticated non-loopback exposure. The sole real effect
+writes UTF-8 content to a relative path inside a per-execution sandbox after
+principal-aware policy authorization.
 
 ## Deferred
 
 - Production databases, backups, multi-writer persistence, and exactly-once
   effect recovery
-- Authentication and production network exposure
+- Multi-principal authorization, credential lifecycle, TLS, and production
+  network hardening
 - General planning, durable retries, and automatic wait resumption
 - LLM or model-provider integration
 - Additional Action connectors and real Network transports

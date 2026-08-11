@@ -526,6 +526,16 @@ export interface PandaExecutionView {
   readonly traceUrl: string;
 }
 
+export type PandaApiAuthenticationMode = "none" | "bearer";
+
+export interface PandaHealthResponse {
+  readonly ok: boolean;
+  readonly name: string;
+  readonly version: string;
+  readonly persistence: "file" | "memory";
+  readonly authentication: PandaApiAuthenticationMode;
+}
+
 export interface PandaApiErrorDetail {
   readonly code: string;
   readonly message: string;

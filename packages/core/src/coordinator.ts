@@ -17,6 +17,7 @@ import {
   type PandaExecution,
   type PolicyEvaluation,
   type PolicyEvaluationSummary,
+  type PrincipalReference,
   type RecordProducer,
   type TerminalOutcome,
   type TraceCategory,
@@ -169,6 +170,7 @@ export interface ExecutionCoordinatorOptions {
   readonly now?: () => string;
   readonly policyEngine?: PolicyEngine;
   readonly goalStore?: GoalStore;
+  readonly defaultPrincipal?: PrincipalReference;
 }
 
 export interface CoordinateExecutionInput {
@@ -178,6 +180,7 @@ export interface CoordinateExecutionInput {
   readonly causationId?: string;
   readonly expectedUpdatedAt?: string;
   readonly contextValues?: Readonly<Record<string, unknown>>;
+  readonly principal?: PrincipalReference;
 }
 
 export interface CoordinationResult {
@@ -224,6 +227,7 @@ export class ExecutionCoordinator {
   private readonly now: () => string;
   private readonly policyEngine: PolicyEngine;
   private readonly goalStore?: GoalStore;
+  private readonly defaultPrincipal: PrincipalReference;
   private readonly activeExecutions = new Set<string>();
 
   constructor(
@@ -244,6 +248,10 @@ export class ExecutionCoordinator {
     this.now = options.now ?? nowIso;
     this.policyEngine = options.policyEngine ?? new V01PolicyEngine();
     this.goalStore = options.goalStore;
+    this.defaultPrincipal = options.defaultPrincipal ?? {
+      id: this.component,
+      type: "system",
+    };
   }
 
   async run(input: CoordinateExecutionInput): Promise<CoordinationResult> {
@@ -369,6 +377,7 @@ export class ExecutionCoordinator {
         invocationId,
         activeCapability: capability,
         deadline: execution.deadline,
+        principal: input.principal ?? this.defaultPrincipal,
         invocationHistory: [...invocationHistory],
         values: input.contextValues ?? {},
       });
