@@ -5,6 +5,7 @@ import {
   PANDA_SCHEMA_VERSION,
   createActionRequest,
   createAssessment,
+  createConnectorInvocation,
   createDecision,
   createExecutionContext,
   createFailure,
@@ -171,9 +172,19 @@ test("material records preserve typed payloads and causal identity", () => {
     parameters: observation.payload,
     idempotencyKey: "write-proof-once",
   });
-  const outcome = createOutcome({
+  const connectorInvocation = createConnectorInvocation({
     ...commonIdentity,
     causationId: action.id,
+    producer: { kind: "connector", connectorId: "filesystem" },
+    connectorId: "filesystem",
+    actionRequestId: action.id,
+    status: "completed",
+    startedAt: "2026-08-10T00:00:02.000Z",
+    endedAt: "2026-08-10T00:00:03.000Z",
+  });
+  const outcome = createOutcome({
+    ...commonIdentity,
+    causationId: connectorInvocation.id,
     producer: { kind: "connector", connectorId: "filesystem" },
     actionRequestId: action.id,
     status: "succeeded",
@@ -201,7 +212,9 @@ test("material records preserve typed payloads and causal identity", () => {
   assert.equal(assessment.causationId, observation.id);
   assert.equal(decision.causationId, assessment.id);
   assert.equal(action.causationId, decision.id);
-  assert.equal(outcome.causationId, action.id);
+  assert.equal(connectorInvocation.causationId, action.id);
+  assert.equal(connectorInvocation.actionRequestId, action.id);
+  assert.equal(outcome.causationId, connectorInvocation.id);
   assert.equal(failure.causationId, outcome.id);
   assert.equal(outcome.data?.bytesWritten, 20);
   assert.equal(failure.schemaVersion, PANDA_SCHEMA_VERSION);

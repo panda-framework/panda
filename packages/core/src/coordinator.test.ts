@@ -375,6 +375,48 @@ test("converts thrown and invalid capability results into structured failures", 
     assert.equal(result.execution.status, "failed");
     assert.equal(result.failure?.code, "INVALID_NEXT_STEP");
   });
+
+  await t.test("cross-execution capability trace event", async () => {
+    const store = new InMemoryExecutionStore();
+    const registry = new InMemoryCapabilityRegistry();
+    const execution = makeExecution("exe_invalid_trace_event");
+    store.createExecution(execution);
+    registry.register(
+      capability("perception", () => ({
+        output: undefined,
+        nextStep: {
+          kind: "terminate",
+          outcome: "succeeded",
+          reason: "invalid trace must prevent this termination",
+        },
+        traceEvents: [
+          {
+            category: "outcome",
+            type: "action.succeeded",
+            producer: { kind: "connector", connectorId: "filesystem" },
+            payload: {
+              executionId: "exe_other",
+              goalId: execution.goalId,
+              correlationId: execution.correlationId,
+            },
+          },
+        ],
+      })),
+    );
+
+    const result = await new ExecutionCoordinator(store, registry).run({
+      executionId: execution.executionId,
+      input: undefined,
+    });
+    assert.equal(result.execution.status, "failed");
+    assert.equal(result.failure?.code, "INVALID_CAPABILITY_TRACE_EVENTS");
+    assert.equal(
+      store
+        .getTrace(execution.executionId)
+        .some((record) => record.category === "outcome"),
+      false,
+    );
+  });
 });
 
 test("stops an unbounded self-transition at the invocation limit", async () => {

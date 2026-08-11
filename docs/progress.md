@@ -2,90 +2,91 @@
 
 ## Current status
 
-- **Latest completed phase:** Phase 5 — Add the policy gate
+- **Latest completed phase:** Phase 6 — Implement real action execution
 - **Completed:** 2026-08-10
-- **Next phase:** Phase 6 — Implement real action execution
-- **Phase plan:** [Phase 5 Plan](plans/phase-5.md)
+- **Next phase:** Phase 7 — Close the outcome feedback loop
+- **Phase plan:** [Phase 6 Plan](plans/phase-6.md)
 - **Frozen baseline:** [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md)
 
-## Phase 5 completion
+## Phase 6 completion
 
 ### What was completed
 
-- Added a canonical `PolicyEvaluation` record with an evaluation point, stable
-  policy ID, `allow`/`deny`/`require` result, reason, redacted inputs, and full
-  execution identity.
-- Added a replaceable `PolicyEngine` port and deterministic v0.1 implementation
-  to `@panda/core`.
-- Evaluated every structurally valid transition immediately before commitment,
-  recorded the evaluation in the causal trace, and embedded its summary in the
-  committed or rejected TransitionRecord.
-- Rejected non-allow transitions with structured policy failures instead of
-  invoking a target or inventing a route.
-- Added an inspectable execution workspace resolver rooted at a configurable
-  data directory and an inspectable 65,536-byte UTF-8 content maximum.
-- Restricted v0.1 effects to `filesystem.write` through the filesystem
-  connector into the current execution workspace.
-- Denied absolute and empty paths, explicit traversal, workspace-root targets,
-  invalid execution identifiers, wrong action/connector/target/encoding,
-  oversized content, symbolic-link path segments, and hard-linked targets.
-- Made deterministic Action evaluate the exact effect candidate. An allow
-  result creates a new policy-bound ActionRequest and waits before any
-  connector; a deny or require result creates a rejected zero-effect Outcome.
-- Made Decision consume the rejected policy Outcome and terminate the bounded
-  v0.1 fixture with explicit safe non-action.
-- Kept requested file content out of policy input details and retained the
-  legacy application path unchanged.
+- Added a canonical `ConnectorInvocation` record with connector/action
+  identity, status, start/end times, and Outcome reference.
+- Added a responsibility-specific `ActionConnector` port and an ownership-safe
+  in-memory registry with explicit connector and action-type dispatch.
+- Added the canonical filesystem Action connector for the sole v0.1 effect:
+  create or replace one UTF-8 file below
+  `<dataDirectory>/runs/<executionId>/workspace`.
+- Required the exact Phase 5 authorization and repeated deterministic v0.1
+  policy at the filesystem boundary before and after managed directory
+  creation.
+- Created managed directory segments individually, rejected links and unsafe
+  aliases, used no-follow/nonblocking open flags, and required the opened target
+  to be one regular file before truncation.
+- Tracked when an effect became possible and preserved completed, rejected,
+  failed, cancelled, timeout, partial, indeterminate, none, partial, completed,
+  and unknown semantics without promoting uncertainty to success.
+- Recorded relative/resolved path, exact byte count, SHA-256 content hash,
+  policy authorization reference, connector identity, action identity, and
+  start/end times in structured outcomes.
+- Made deterministic Action dispatch only through an explicitly configured
+  connector registry. Existing embedded and legacy callers retain the safe
+  post-authorization wait boundary.
+- Added distinct causal traces for the authorized ActionRequest,
+  ConnectorInvocation, and Outcome. Rejections and failures route back to
+  Decision; completed writes wait for Phase 7 verification.
+- Kept the legacy daemon, SDK, universal connectors, and current application
+  behavior unchanged.
 
 ### Key technical decisions
 
-- Policy engines return decisions but do not mutate state, route capabilities,
-  or perform effects. A shared helper creates the canonical evaluation record.
-- Structural transition checks remain coordinator responsibilities. Policy is
-  evaluated only for a transition that could otherwise commit.
-- The generic coordinator records capability-produced policy evaluations but
-  does not inspect filesystem products or choose the effect-denial route.
-- Effect allowance is authorization, not execution or verification. The
-  allowed Phase 5 route ends at:
+- The canonical Action connector is separate from the legacy universal
+  connector so filesystem effect privileges do not mix with observation or
+  network responsibilities.
+- Capability-side authorization cannot weaken the filesystem boundary. The
+  connector owns a deterministic `V01PolicyEngine` and re-evaluates the exact
+  authorized request with the active execution context.
+- Authorization, dispatch, effect completion, and independent verification are
+  distinct. A completed Phase 6 route ends at:
 
   ```text
   Perception -> Analysis -> Decision -> Action
-    -> wait(action.connector.available)
+    -> wait(effect.verification.available)
   ```
 
-- Injected or rule-based effect denial selects:
+- A policy or connector rejection/failure selects:
 
   ```text
   Perception -> Analysis -> Decision -> Action
     -> Decision -> terminate(failed)
   ```
 
-- Sandbox checks treat both POSIX and Windows absolute syntax and separators as
-  unsafe input. Existing symbolic-link segments and multi-linked file targets
-  are denied. Phase 6 must repeat checks around the real write because policy
-  evaluation cannot eliminate filesystem time-of-check/time-of-use races.
-- Evaluation details record paths, operation metadata, byte count, and limit,
-  but not the requested content.
-- The deterministic v0.1 policy returns allow or deny. The public port retains
-  `require` for future approval flows.
+- An unknown connector is a known zero-effect dispatch failure. A connector
+  that throws after dispatch becomes `indeterminate` with an `unknown` effect,
+  because Action cannot prove whether the external state changed.
+- A successful write is not observed evidence and cannot mark the execution or
+  goal succeeded. Phase 7 must read and compare the environment independently.
+- Directory and file-descriptor checks reduce filesystem race exposure but do
+  not turn the local v0.1 sandbox into an operating-system security container.
 
 ### Validation results
 
-- `pnpm --filter @panda/core test` — passed; 45 core tests passed, including
-  five deterministic capability tests, six policy tests with 12 nested denial
-  cases, eight coordinator tests with four nested cases, six execution-store
-  tests, and four legacy runtime tests.
+- `pnpm --filter @panda/core test` — passed; 54 core tests passed, including
+  direct real-write, authorization, traversal, registry, I/O failure,
+  cancellation, and timeout tests plus coordinator-level write, trace,
+  missing-connector, and indeterminate-effect scenarios.
 - `pnpm build` — passed for all workspace projects.
 - `pnpm typecheck` — passed for all workspace projects.
-- `pnpm test` — passed; 5 shared contract tests and 45 core tests passed, and
+- `pnpm test` — passed; 5 shared contract tests and 54 core tests passed, and
   all remaining package scripts completed successfully.
 - `git diff --check` — passed.
-- Local Markdown link/path inspection — passed; 99 local links across 38
+- Local Markdown link/path inspection — passed; 105 local links across 39
   Markdown files checked.
-- `.env`, generated wallets, temporary policy sandboxes, and build outputs —
-  confirmed absent from the change set; repository-managed sensitive and build
-  paths remain ignored, while policy tests use operating-system temporary
-  directories.
+- `.env`, generated wallets, repository-local `.panda`, temporary connector
+  sandboxes, and build outputs — confirmed absent from the change set; tests
+  write only below operating-system temporary directories.
 - Format and lint — not run because the repository defines no format or lint
   script or configured tool.
 
@@ -93,25 +94,27 @@ The dashboard build emitted the existing Node experimental warning while
 loading the TypeScript Tailwind configuration through CommonJS; the build
 completed successfully.
 
-### Remaining Phase 5 work
+### Remaining Phase 6 work
 
-None. The policy boundary is complete and remains intentionally effect-free.
-It is not wired into daemon callers before the ordered integration phase.
+None. The real Action effect is complete and intentionally does not claim
+independent observation or goal verification. It is not wired into daemon
+callers before the ordered integration phase.
 
 ## Previous phases
 
-Phases 0 through 4 froze the v0.1 product baseline, added canonical contracts,
+Phases 0 through 5 froze the v0.1 product baseline, added canonical contracts,
 established independent in-memory execution and causal trace state, added
-dynamic coordination, and implemented the deterministic five-capability route.
-Their full completion records remain in the [Phase 0 Plan](plans/phase-0.md),
+dynamic coordination, implemented the deterministic five-capability route,
+and established independent transition/effect policy. Their full completion
+records remain in the [Phase 0 Plan](plans/phase-0.md),
 [Phase 1 Plan](plans/phase-1.md), [Phase 2 Plan](plans/phase-2.md),
-[Phase 3 Plan](plans/phase-3.md), and [Phase 4 Plan](plans/phase-4.md).
+[Phase 3 Plan](plans/phase-3.md), [Phase 4 Plan](plans/phase-4.md), and
+[Phase 5 Plan](plans/phase-5.md).
 
 ## Next phase
 
-Phase 6 adds a responsibility-specific filesystem Action connector and performs
-the real write inside the authorized execution workspace. It must revalidate
-the boundary, preserve authorization and identity, distinguish all material
-outcome states, and report resolved path, byte count, and SHA-256 hash. It does
-not mark the goal achieved; independent observation and verification remain
-Phase 7.
+Phase 7 feeds the completed Outcome back into coordination, reads the written
+file independently through Perception, compares its path, bytes, and hash with
+goal criteria in Analysis, and terminates successfully only when the observed
+environment proves the goal. Missing or mismatched effects must remain failure
+or bounded-recovery evidence rather than success.

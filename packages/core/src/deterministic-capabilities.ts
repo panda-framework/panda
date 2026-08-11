@@ -1,6 +1,7 @@
 import {
   createActionRequest,
   createAssessment,
+  createConnectorInvocation,
   createDecision,
   createId,
   createObservationRecord,
@@ -19,6 +20,11 @@ import {
   type PolicyEvaluation,
   type Signal,
 } from "@panda/shared";
+import {
+  ActionConnectorRegistryError,
+  type ActionConnectorRegistry,
+  type FilesystemWriteOutcomeData,
+} from "./action-connector.js";
 import type {
   CapabilityImplementation,
   CapabilityInvocation,
@@ -38,6 +44,8 @@ export const EXECUTION_WORKSPACE_TARGET = "execution-workspace" as const;
 export const POLICY_EVALUATION_RESUME_EVENT = "policy.evaluated" as const;
 export const ACTION_CONNECTOR_RESUME_EVENT =
   "action.connector.available" as const;
+export const EFFECT_VERIFICATION_RESUME_EVENT =
+  "effect.verification.available" as const;
 
 export interface DemoFileWriteParameters {
   readonly path: string;
@@ -83,6 +91,9 @@ export interface DemoFilePolicyOutcomeData {
 }
 
 export type DemoFilePolicyOutcome = Outcome<DemoFilePolicyOutcomeData>;
+export type DemoFileActionOutcome = Outcome<
+  DemoFilePolicyOutcomeData | FilesystemWriteOutcomeData | undefined
+>;
 
 export interface NetworkPlaceholderResult {
   readonly kind: "network-placeholder";
@@ -93,6 +104,7 @@ export interface NetworkPlaceholderResult {
 export interface DeterministicCapabilityOptions {
   readonly now?: () => string;
   readonly policyEngine?: PolicyEngine;
+  readonly actionConnectorRegistry?: ActionConnectorRegistry;
 }
 
 interface InspectedDemoFileInput {
@@ -232,7 +244,7 @@ export class DeterministicAnalysisCapability
 export class DeterministicDecisionCapability
   implements
     CapabilityImplementation<
-      DemoFileAssessment | DemoFilePolicyOutcome,
+      DemoFileAssessment | DemoFileActionOutcome,
       DemoFileDecision
     >
 {
@@ -245,12 +257,12 @@ export class DeterministicDecisionCapability
 
   invoke(
     invocation: CapabilityInvocation<
-      DemoFileAssessment | DemoFilePolicyOutcome
+      DemoFileAssessment | DemoFileActionOutcome
     >,
   ): CapabilityResult<DemoFileDecision> {
     throwIfAborted(invocation.signal);
-    if (isPolicyOutcome(invocation.input)) {
-      return this.decidePolicyOutcome(invocation.input, invocation);
+    if (isOutcome(invocation.input)) {
+      return this.decideActionOutcome(invocation.input, invocation);
     }
     const assessment = requireAssessment(invocation.input, invocation);
     const result = requireAssessmentResult(assessment.result);
@@ -389,8 +401,8 @@ export class DeterministicDecisionCapability
     return { output: decision, nextStep };
   }
 
-  private decidePolicyOutcome(
-    outcome: DemoFilePolicyOutcome,
+  private decideActionOutcome(
+    outcome: DemoFileActionOutcome,
     invocation: CapabilityInvocation,
   ): CapabilityResult<DemoFileDecision> {
     assertRecordIdentity(
@@ -398,31 +410,44 @@ export class DeterministicDecisionCapability
       invocation,
       "Outcome",
     );
-    const evaluation = outcome.data?.policyEvaluation;
     if (
-      outcome.status !== "rejected" ||
-      outcome.effectStatus !== "none" ||
-      evaluation === undefined ||
-      evaluation.point !== "effect" ||
-      evaluation.result === "allow" ||
-      outcome.causationId !== evaluation.id ||
-      evaluation.causationId !== outcome.actionRequestId
+      outcome.status === "succeeded" ||
+      typeof outcome.actionRequestId !== "string" ||
+      outcome.actionRequestId.trim() === ""
     ) {
-      throw new TypeError(
-        "Decision requires a rejected zero-effect policy outcome.",
+      throw new TypeError("Decision requires a non-success Action outcome.");
+    }
+    const evaluation = policyEvaluationFromOutcome(outcome);
+    if (evaluation !== undefined) {
+      if (
+        outcome.status !== "rejected" ||
+        outcome.effectStatus !== "none" ||
+        evaluation.point !== "effect" ||
+        evaluation.result === "allow" ||
+        outcome.causationId !== evaluation.id ||
+        evaluation.causationId !== outcome.actionRequestId
+      ) {
+        throw new TypeError(
+          "Decision received an inconsistent policy-rejection outcome.",
+        );
+      }
+      assertRecordIdentity(
+        evaluation as unknown as Record<string, unknown>,
+        invocation,
+        "PolicyEvaluation",
       );
     }
-    assertRecordIdentity(
-      evaluation as unknown as Record<string, unknown>,
-      invocation,
-      "PolicyEvaluation",
-    );
+
+    const outcomeReason =
+      evaluation?.reason ??
+      outcome.error?.message ??
+      `The connector reported ${outcome.status} with ${outcome.effectStatus} effect status.`;
 
     const nextStep: NextStep = {
       kind: "terminate",
       outcome: "failed",
       reason:
-        "The requested filesystem effect was not authorized and no safe v0.1 alternative remains.",
+        "The requested filesystem effect did not complete successfully and no safe v0.1 alternative remains.",
     };
     const decision = createDecision<DemoFileDecisionIntent>({
       executionId: invocation.context.executionId,
@@ -432,18 +457,18 @@ export class DeterministicDecisionCapability
       producer: { kind: "capability", capability: this.capability },
       timestamp: this.now(),
       selectedOption: {
-        id: "terminate-after-policy-rejection",
-        description: "Stop without attempting the denied effect.",
+        id: "terminate-after-action-failure",
+        description: "Stop after the non-success Action outcome.",
         intent: {
           kind: "no-action",
-          reason: evaluation.reason,
+          reason: outcomeReason,
         },
       },
       alternatives: [
         {
-          id: "await-future-authorized-request",
+          id: "await-future-safe-request",
           description:
-            "A future execution may provide a request that satisfies policy.",
+            "A future execution may provide a policy-permitted request and healthy connector.",
           intent: {
             kind: "no-action",
             reason:
@@ -455,20 +480,24 @@ export class DeterministicDecisionCapability
         {
           id: outcome.id,
           kind: "record",
-          description: "Rejected Action outcome with no external effect",
+          description: `${outcome.status} Action outcome with ${outcome.effectStatus} effect status`,
         },
-        {
-          id: evaluation.id,
-          kind: "policy",
-          description: evaluation.reason,
-        },
+        ...(evaluation === undefined
+          ? []
+          : [
+              {
+                id: evaluation.id,
+                kind: "policy" as const,
+                description: evaluation.reason,
+              },
+            ]),
       ],
       decisiveConstraints: [
-        "A denied or approval-required effect cannot reach a connector.",
-        "The v0.1 policy-denial fixture has no authorized alternative.",
+        "A non-success connector or policy outcome cannot be treated as completed work.",
+        "The v0.1 fixture has no retry or recovery alternative within the same execution.",
       ],
       rationale:
-        "Independent policy did not allow the selected effect. The rejected outcome confirms that no connector effect was attempted, so safe termination is required.",
+        "The bounded Action attempt did not complete successfully. Its explicit effect status is preserved, and safe termination prevents uncertainty or partial work from being promoted to success.",
       nextStep,
     });
 
@@ -477,8 +506,8 @@ export class DeterministicDecisionCapability
 }
 
 /**
- * Phase 5 Action policy boundary. It authorizes or rejects the selected
- * candidate but never invokes a connector or mutates a filesystem.
+ * Policy-gated Action boundary. An explicit Phase 6 connector registry enables
+ * dispatch; callers without one retain the safe Phase 5 wait behavior.
  */
 export class DeterministicActionCapability
   implements
@@ -486,16 +515,18 @@ export class DeterministicActionCapability
       DemoFileDecision,
       | ActionRequest<DemoFileWriteParameters>
       | DemoFileDecision
-      | DemoFilePolicyOutcome
+      | DemoFileActionOutcome
     >
 {
   readonly capability = "action" as const;
   private readonly now: () => string;
   private readonly policyEngine: PolicyEngine;
+  private readonly actionConnectorRegistry?: ActionConnectorRegistry;
 
   constructor(options: DeterministicCapabilityOptions = {}) {
     this.now = options.now ?? nowIso;
     this.policyEngine = options.policyEngine ?? new V01PolicyEngine();
+    this.actionConnectorRegistry = options.actionConnectorRegistry;
   }
 
   async invoke(
@@ -504,7 +535,7 @@ export class DeterministicActionCapability
     CapabilityResult<
       | ActionRequest<DemoFileWriteParameters>
       | DemoFileDecision
-      | DemoFilePolicyOutcome
+      | DemoFileActionOutcome
     >
   > {
     throwIfAborted(invocation.signal);
@@ -591,15 +622,124 @@ export class DeterministicActionCapability
       idempotencyKey: actionRequest.idempotencyKey,
       timeoutMs: actionRequest.timeoutMs,
     });
-    return {
-      output: authorizedRequest,
-      nextStep: {
-        kind: "wait",
-        reason:
-          "Policy allowed the exact request, but no Action connector is enabled before Phase 6.",
-        resumeOn: ACTION_CONNECTOR_RESUME_EVENT,
+
+    if (this.actionConnectorRegistry === undefined) {
+      return {
+        output: authorizedRequest,
+        nextStep: {
+          kind: "wait",
+          reason:
+            "Policy allowed the exact request, but no Action connector registry is configured.",
+          resumeOn: ACTION_CONNECTOR_RESUME_EVENT,
+        },
+        policyEvaluations: [evaluation],
+      };
+    }
+
+    const connectorInvocationId = createId("conninv");
+    const connectorStartedAt = this.now();
+    let connectorFailed = false;
+    let outcome: DemoFileActionOutcome;
+    try {
+      outcome = (await this.actionConnectorRegistry.execute(
+        authorizedRequest,
+        {
+          id: connectorInvocationId,
+          context: invocation.context,
+          signal: invocation.signal,
+        },
+      )) as DemoFileActionOutcome;
+      requireConnectorOutcome(
+        outcome,
+        authorizedRequest,
+        connectorInvocationId,
+        invocation,
+      );
+    } catch (error) {
+      connectorFailed = true;
+      const timestamp = this.now();
+      const rejectedBeforeDispatch =
+        error instanceof ActionConnectorRegistryError;
+      outcome = createOutcome({
+        executionId: invocation.context.executionId,
+        goalId: invocation.context.goalId,
+        correlationId: invocation.context.correlationId,
+        causationId: connectorInvocationId,
+        producer: { kind: "runtime", component: "action-connector-dispatch" },
+        timestamp,
+        actionRequestId: authorizedRequest.id,
+        status: rejectedBeforeDispatch ? "failed" : "indeterminate",
+        effectStatus: rejectedBeforeDispatch ? "none" : "unknown",
+        startedAt: connectorStartedAt,
+        endedAt: timestamp,
+        error: {
+          code:
+            error instanceof ActionConnectorRegistryError
+              ? error.code
+              : "ACTION_CONNECTOR_FAILED",
+          message: describeError(error),
+        },
+      });
+    }
+
+    const connectorEndedAt = this.now();
+    const connectorInvocation = createConnectorInvocation({
+      id: connectorInvocationId,
+      executionId: invocation.context.executionId,
+      goalId: invocation.context.goalId,
+      correlationId: invocation.context.correlationId,
+      causationId: authorizedRequest.id,
+      producer: {
+        kind: "connector",
+        connectorId: authorizedRequest.connectorId,
       },
+      timestamp: connectorStartedAt,
+      connectorId: authorizedRequest.connectorId,
+      actionRequestId: authorizedRequest.id,
+      status: connectorFailed ? "failed" : "completed",
+      startedAt: connectorStartedAt,
+      endedAt: connectorEndedAt,
+      outcomeId: outcome.id,
+    });
+    const completed =
+      outcome.status === "succeeded" && outcome.effectStatus === "completed";
+
+    return {
+      output: outcome,
+      nextStep: completed
+        ? {
+            kind: "wait",
+            reason:
+              "The connector completed the write; independent Phase 7 verification is still required.",
+            resumeOn: EFFECT_VERIFICATION_RESUME_EVENT,
+          }
+        : {
+            kind: "invoke",
+            target: "decision",
+            reason:
+              "Decision must evaluate the non-success Action outcome and its effect status.",
+          },
       policyEvaluations: [evaluation],
+      traceEvents: [
+        {
+          category: "action-request",
+          type: "action.authorized",
+          producer: authorizedRequest.producer,
+          payload: authorizedRequest,
+        },
+        {
+          category: "connector-invocation",
+          type: connectorFailed ? "connector.failed" : "connector.completed",
+          producer: connectorInvocation.producer,
+          payload: connectorInvocation,
+        },
+        {
+          category: "outcome",
+          type: `action.${outcome.status}`,
+          producer: outcome.producer,
+          payload: outcome,
+        },
+      ],
     };
   }
 }
@@ -657,7 +797,7 @@ export function createDeterministicPandaCapabilities(
   };
 }
 
-/** Registers the Phase 4 set atomically and returns an ownership-safe cleanup. */
+/** Registers the deterministic v0.1 set atomically with ownership-safe cleanup. */
 export function registerDeterministicPandaCapabilities(
   registry: CapabilityRegistry,
   options: DeterministicCapabilityOptions = {},
@@ -887,15 +1027,77 @@ function requireObservation(
   return value as unknown as Observation<unknown>;
 }
 
-function isPolicyOutcome(value: unknown): value is DemoFilePolicyOutcome {
+function isOutcome(value: unknown): value is DemoFileActionOutcome {
   return (
     isRecord(value) &&
     value.kind === "outcome" &&
-    value.status === "rejected" &&
-    value.effectStatus === "none" &&
-    isRecord(value.data) &&
-    isRecord(value.data.policyEvaluation) &&
-    value.data.policyEvaluation.kind === "policy-evaluation"
+    typeof value.id === "string" &&
+    typeof value.actionRequestId === "string" &&
+    OUTCOME_STATUSES.has(value.status as DemoFileActionOutcome["status"]) &&
+    EFFECT_STATUSES.has(
+      value.effectStatus as DemoFileActionOutcome["effectStatus"],
+    )
+  );
+}
+
+const OUTCOME_STATUSES = new Set<DemoFileActionOutcome["status"]>([
+  "succeeded",
+  "failed",
+  "rejected",
+  "cancelled",
+  "timeout",
+  "indeterminate",
+  "partial",
+]);
+
+const EFFECT_STATUSES = new Set<DemoFileActionOutcome["effectStatus"]>([
+  "none",
+  "attempted",
+  "completed",
+  "partial",
+  "unknown",
+]);
+
+function policyEvaluationFromOutcome(
+  outcome: DemoFileActionOutcome,
+): PolicyEvaluation | undefined {
+  const data = outcome.data;
+  if (
+    isRecord(data) &&
+    isRecord(data.policyEvaluation) &&
+    data.policyEvaluation.kind === "policy-evaluation"
+  ) {
+    return data.policyEvaluation as unknown as PolicyEvaluation;
+  }
+  return undefined;
+}
+
+function requireConnectorOutcome(
+  value: unknown,
+  request: ActionRequest,
+  connectorInvocationId: string,
+  invocation: CapabilityInvocation,
+): asserts value is DemoFileActionOutcome {
+  if (
+    !isOutcome(value) ||
+    value.actionRequestId !== request.id ||
+    value.causationId !== connectorInvocationId ||
+    value.producer.kind !== "connector" ||
+    value.producer.connectorId !== request.connectorId ||
+    typeof value.startedAt !== "string" ||
+    value.startedAt.trim() === "" ||
+    typeof value.endedAt !== "string" ||
+    value.endedAt.trim() === "" ||
+    (value.status === "succeeded" && value.effectStatus !== "completed")
+  ) {
+    throw new TypeError(
+      "The Action connector returned an invalid or causally unrelated Outcome.",
+    );
+  }
+  assertRecordIdentity(
+    value as unknown as Record<string, unknown>,
+    invocation,
+    "Outcome",
   );
 }
 
@@ -994,6 +1196,12 @@ function throwIfAborted(signal: AbortSignal): void {
   const error = new Error("Capability invocation was cancelled.");
   error.name = "AbortError";
   throw error;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "The Action connector failed with a non-error value.";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
