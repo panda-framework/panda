@@ -3,6 +3,7 @@ import type {
   PandaApiErrorResponse,
   PandaExecutionCreateInput,
   PandaExecutionView,
+  PandaHealthResponse,
   StoredPandaTraceRecord,
 } from "@panda/shared";
 
@@ -15,11 +16,13 @@ export type {
   PandaExecution,
   PandaExecutionCreateInput,
   PandaExecutionView,
+  PandaHealthResponse,
   StoredPandaTraceRecord,
 } from "@panda/shared";
 
 export interface PandaClientOptions {
   baseUrl?: string;
+  apiToken?: string;
 }
 
 export class PandaRequestError extends Error {
@@ -34,21 +37,21 @@ export class PandaRequestError extends Error {
 
 export class PandaClient {
   private readonly baseUrl: string;
+  private readonly apiToken?: string;
 
   constructor(options: PandaClientOptions = {}) {
     this.baseUrl = (options.baseUrl || "http://127.0.0.1:4317").replace(
       /\/$/,
       "",
     );
+    if (options.apiToken !== undefined && options.apiToken.trim() === "") {
+      throw new TypeError("The PANDA API token must not be empty.");
+    }
+    this.apiToken = options.apiToken;
   }
 
   async health() {
-    return this.request<{
-      ok: boolean;
-      name: string;
-      version: string;
-      persistence: "file" | "memory";
-    }>("/health");
+    return this.request<PandaHealthResponse>("/health");
   }
 
   async listExecutions() {
@@ -75,12 +78,14 @@ export class PandaClient {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers = new Headers(init.headers);
+    headers.set("content-type", "application/json");
+    if (this.apiToken !== undefined) {
+      headers.set("authorization", `Bearer ${this.apiToken}`);
+    }
     const response = await fetch(`${this.baseUrl}${path}`, {
-      headers: {
-        "content-type": "application/json",
-        ...init.headers,
-      },
       ...init,
+      headers,
     });
 
     if (!response.ok) {

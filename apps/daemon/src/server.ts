@@ -1,17 +1,30 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyRequest,
+} from "fastify";
 import { z } from "zod";
 import {
   PANDA_V01_EXECUTION_REQUEST_TYPE,
   nowIso,
   type PandaApiErrorResponse,
   type PandaEvent,
+  type PandaHealthResponse,
+  type PrincipalReference,
 } from "@panda/shared";
 import {
   PandaDaemonRuntime,
   type PandaDaemonRuntimeOptions,
 } from "./execution-runtime.js";
+import {
+  DEFAULT_PANDA_ALLOWED_ORIGINS,
+  LOCAL_API_PRINCIPAL,
+  authenticateBearerAuthorization,
+  normalizeAllowedOrigins,
+  validateBearerAuthentication,
+  type PandaBearerAuthentication,
+} from "./api-security.js";
 
 const executionSchema = z
   .object({
@@ -28,6 +41,8 @@ const executionSchema = z
 
 export interface PandaDaemonOptions extends PandaDaemonRuntimeOptions {
   readonly runtime?: PandaDaemonRuntime;
+  readonly authentication?: PandaBearerAuthentication;
+  readonly allowedOrigins?: readonly string[];
 }
 
 export interface PandaDaemon {
@@ -39,11 +54,43 @@ export async function createDaemon(
   options: PandaDaemonOptions = {},
 ): Promise<PandaDaemon> {
   const runtime = options.runtime ?? new PandaDaemonRuntime(options);
+  const authentication =
+    options.authentication === undefined
+      ? undefined
+      : validateBearerAuthentication(options.authentication);
+  const allowedOrigins = normalizeAllowedOrigins(
+    options.allowedOrigins ?? DEFAULT_PANDA_ALLOWED_ORIGINS,
+  );
+  const requestPrincipals = new WeakMap<FastifyRequest, PrincipalReference>();
   const clients = new Set<{ send: (payload: string) => void }>();
   const app = Fastify({ logger: false });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: [...allowedOrigins] });
   await app.register(websocket);
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (
+      request.method === "OPTIONS" ||
+      request.url.split("?", 1)[0] === "/health"
+    ) {
+      return;
+    }
+    if (authentication === undefined) {
+      requestPrincipals.set(request, LOCAL_API_PRINCIPAL);
+      return;
+    }
+    const principal = authenticateBearerAuthorization(
+      request.headers.authorization,
+      authentication,
+    );
+    if (principal === undefined) {
+      return reply
+        .header("www-authenticate", 'Bearer realm="panda-daemon"')
+        .code(401)
+        .send(authenticationError());
+    }
+    requestPrincipals.set(request, principal);
+  });
 
   const unsubscribe = runtime.subscribe((record) => {
     const event: PandaEvent = {
@@ -63,19 +110,25 @@ export async function createDaemon(
   });
   app.addHook("onClose", async () => unsubscribe());
 
-  app.get("/health", async () => ({
-    ok: true,
-    name: "panda-daemon",
-    version: "0.1.0",
-    persistence: runtime.persistence,
-  }));
+  app.get("/health", async () =>
+    ({
+      ok: true,
+      name: "panda-daemon",
+      version: "0.1.0",
+      persistence: runtime.persistence,
+      authentication: authentication === undefined ? "none" : "bearer",
+    }) satisfies PandaHealthResponse,
+  );
 
   app.post("/executions", async (request, reply) => {
     const parsed = executionSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send(validationError(parsed.error));
     }
-    return runtime.createExecution(parsed.data);
+    return runtime.createExecution(
+      parsed.data,
+      requireRequestPrincipal(request, requestPrincipals),
+    );
   });
 
   app.get("/executions", async () => runtime.listExecutionViews());
@@ -136,4 +189,26 @@ function notFoundError(executionId: string): PandaApiErrorResponse {
       message: `Execution ${executionId} was not found.`,
     },
   };
+}
+
+function authenticationError(): PandaApiErrorResponse {
+  return {
+    error: {
+      code: "AUTHENTICATION_REQUIRED",
+      message: "A valid PANDA API bearer token is required.",
+    },
+  };
+}
+
+function requireRequestPrincipal(
+  request: FastifyRequest,
+  principals: WeakMap<FastifyRequest, PrincipalReference>,
+): PrincipalReference {
+  const principal = principals.get(request);
+  if (principal === undefined) {
+    throw new Error(
+      "The authenticated API principal was not attached to the request.",
+    );
+  }
+  return principal;
 }

@@ -166,6 +166,8 @@ boundaries in this specification:
 - execution-scoped state, goals, deadlines, cancellation, invocation bounds,
   and causal traces;
 - separate transition and effect policy checks;
+- API credential resolution to a canonical principal that owns Goals and is
+  required at the effect boundary;
 - a responsibility-specific Action connector whose completed Outcome is
   independently observed and verified; and
 - daemon, SDK, WebSocket, and dashboard views backed by the same stores.
@@ -177,9 +179,10 @@ surface. The five capability names are now the only production capability
 identity. Memory remains a persistence concern; planning, understanding, and
 reflection remain implementation techniques.
 
-The current file-backed stores, optional in-memory stores, and deterministic
-capabilities are replaceable local implementations, not conceptual
-requirements. Durable brokers, databases, general planning, model providers,
+The current file-backed stores, optional in-memory stores, static bearer
+credential, CORS allowlist, and deterministic capabilities are replaceable
+local implementations, not conceptual requirements. Durable brokers,
+databases, general planning, multi-principal authorization, model providers,
 and additional connectors remain optional future implementations behind the
 established ports.
 

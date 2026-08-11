@@ -12,7 +12,8 @@ nor the orchestrator. The frozen v0.1 release demonstrated the architecture with
 one deterministic, policy-bounded filesystem action whose effect is
 independently observed before the Goal can succeed. The current post-v0.1 daemon
 also retains canonical local state across restart and handles interrupted work
-without blindly replaying Action.
+without blindly replaying Action. It can bind API work to an authenticated
+service principal and refuses unauthenticated non-loopback exposure.
 
 - Static project homepage: [`index.html`](./index.html)
 - Documentation index: [`docs/README.md`](./docs/README.md)
@@ -126,8 +127,25 @@ is available through:
 - `GET /executions/:id/trace`
 - `WS /events`
 
-The server is an unauthenticated local development service. Keep it bound to
-loopback and do not expose it to an untrusted network.
+Without `PANDA_API_TOKEN`, the server runs only as the explicit `panda-local`
+principal and must remain on loopback. The process refuses a non-loopback
+listener in that mode. Browser access is limited to the local dashboard origins
+by default.
+
+Enable single-principal bearer mode with a secret of at least 32 characters:
+
+```bash
+export PANDA_API_TOKEN="replace-with-a-secret-of-at-least-32-characters"
+export PANDA_API_PRINCIPAL_ID="local-operator"
+pnpm dev
+```
+
+Then add `Authorization: Bearer $PANDA_API_TOKEN` to execution HTTP requests and
+the `/events` WebSocket upgrade. `/health` stays public and reports
+authentication mode `none` or `bearer`; it never returns the token or principal.
+Set `PANDA_ALLOWED_ORIGINS` to a comma-separated exact origin list when a browser
+client uses different origins. The included dashboard does not yet provide an
+authenticated-mode sign-in or token entry.
 
 By default, canonical Execution/trace and Goal snapshots are stored below
 `.panda/state`; effect workspaces remain below `.panda/runs`. Completed and
@@ -141,7 +159,7 @@ Action. Set `PANDA_PERSISTENCE=memory` only when ephemeral state is intentional.
 ```ts
 import { PandaClient } from "@panda/sdk";
 
-const client = new PandaClient();
+const client = new PandaClient({ apiToken: process.env.PANDA_API_TOKEN });
 const execution = await client.createExecution({
   source: "example",
   payload: {
@@ -172,9 +190,11 @@ pnpm --filter @panda/cli panda version
 The file adapter is a single-process local store, not a database, broker,
 multi-writer service, backup system, or exactly-once effect mechanism. It does
 not automatically resume waits or active work. The bounded filesystem action is
-the only supported real effect. Authentication, durable scheduling/retries,
-general planning, LLM integration, distributed execution, multiple agents,
-plugins, MCP, and cloud deployment are not implemented.
+the only supported real effect. Authentication is one static bearer principal,
+not TLS, browser login, roles/scopes, credential lifecycle, or multi-tenant
+authorization. Durable scheduling/retries, general planning, LLM integration,
+distributed execution, multiple agents, plugins, MCP, and cloud deployment are
+not implemented.
 
 <!-- donations:start -->
 ## Donations

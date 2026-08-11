@@ -1,6 +1,9 @@
 import { PandaClient } from "@panda/sdk";
 
-const client = new PandaClient({ baseUrl: process.env.PANDA_BASE_URL });
+const client = new PandaClient({
+  baseUrl: process.env.PANDA_BASE_URL,
+  apiToken: process.env.PANDA_API_TOKEN,
+});
 const execution = await client.createExecution({
   source: "basic-example",
   payload: {

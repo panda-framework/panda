@@ -9,11 +9,16 @@ import type {
   PandaExecutionView,
   TraceRecord,
 } from "@panda/shared";
-import { createDaemon } from "./server.js";
+import { createDaemon, type PandaDaemonOptions } from "./server.js";
 
-async function withDaemon(context: test.TestContext) {
+const apiToken = "phase-13-server-token-with-32-characters";
+
+async function withDaemon(
+  context: test.TestContext,
+  options: Omit<PandaDaemonOptions, "dataDirectory"> = {},
+) {
   const dataDirectory = await mkdtemp(join(tmpdir(), "panda-daemon-test-"));
-  const daemon = await createDaemon({ dataDirectory });
+  const daemon = await createDaemon({ dataDirectory, ...options });
   context.after(async () => {
     await daemon.app.close();
     await rm(dataDirectory, { recursive: true, force: true });
@@ -180,6 +185,94 @@ test("invalid input and unknown executions return structured client errors", asy
     code: "EXECUTION_NOT_FOUND",
     message: "Execution exe_missing was not found.",
   });
+});
+
+test("bearer mode protects API and WebSocket access while keeping health public", async (context) => {
+  const { app, runtime } = await withDaemon(context, {
+    authentication: {
+      token: apiToken,
+      principal: { id: "phase-13-operator", type: "service" },
+    },
+  });
+  const health = await app.inject({ method: "GET", url: "/health" });
+  const missing = await app.inject({ method: "GET", url: "/executions" });
+  const invalid = await app.inject({
+    method: "GET",
+    url: "/executions",
+    headers: { authorization: "Bearer invalid" },
+  });
+
+  assert.equal(health.statusCode, 200);
+  assert.equal(health.json().authentication, "bearer");
+  for (const response of [missing, invalid]) {
+    assert.equal(response.statusCode, 401);
+    assert.equal(
+      response.json<PandaApiErrorResponse>().error.code,
+      "AUTHENTICATION_REQUIRED",
+    );
+    assert.equal(
+      response.headers["www-authenticate"],
+      'Bearer realm="panda-daemon"',
+    );
+  }
+  await assert.rejects(
+    app.injectWS("/events"),
+    /Unexpected server response: 401/,
+  );
+
+  const authorizedHeaders = { authorization: `Bearer ${apiToken}` };
+  const createdResponse = await app.inject({
+    method: "POST",
+    url: "/executions",
+    headers: authorizedHeaders,
+    payload: {
+      source: "authenticated-test",
+      payload: { path: "principal.txt", content: "principal-bound" },
+    },
+  });
+  assert.equal(createdResponse.statusCode, 200);
+  const created = createdResponse.json<PandaExecutionView>();
+  assert.deepEqual(created.goal.owner, {
+    id: "phase-13-operator",
+    type: "service",
+  });
+  const effectPolicy = runtime
+    .getTrace(created.executionId)
+    ?.find((record) => record.type === "policy.effect.allow");
+  assert.equal(
+    (effectPolicy?.payload as { inputs?: { principalId?: string } }).inputs
+      ?.principalId,
+    "phase-13-operator",
+  );
+  assert.equal(
+    JSON.stringify(runtime.getTrace(created.executionId)).includes(apiToken),
+    false,
+  );
+
+  const socket = await app.injectWS("/events", { headers: authorizedHeaders });
+  socket.terminate();
+});
+
+test("CORS reflects only explicitly allowed browser origins", async (context) => {
+  const { app } = await withDaemon(context, {
+    allowedOrigins: ["https://console.example.test"],
+  });
+  const allowed = await app.inject({
+    method: "GET",
+    url: "/health",
+    headers: { origin: "https://console.example.test" },
+  });
+  const denied = await app.inject({
+    method: "GET",
+    url: "/health",
+    headers: { origin: "https://untrusted.example.test" },
+  });
+
+  assert.equal(
+    allowed.headers["access-control-allow-origin"],
+    "https://console.example.test",
+  );
+  assert.equal(denied.headers["access-control-allow-origin"], undefined);
 });
 
 test("the retired runs route is not exposed", async (context) => {

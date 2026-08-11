@@ -13,6 +13,7 @@ import {
   type PandaExecution,
   type PolicyEvaluation,
   type PolicyEvaluationResult,
+  type PrincipalReference,
   type RecordProducer,
   type TransitionRequest,
 } from "@panda/shared";
@@ -176,6 +177,16 @@ export class V01PolicyEngine implements PolicyEngine {
       maxContentBytes: this.maxContentBytes,
     };
 
+    const principal = request.context.principal;
+    if (!isPrincipalReference(principal)) {
+      return deny(
+        "The effect boundary requires a valid authenticated or runtime principal.",
+        baseInputs,
+      );
+    }
+    baseInputs.principalId = principal.id;
+    baseInputs.principalType = principal.type;
+
     if (!isExecutionIdentifier(request.executionId)) {
       return deny(
         "The execution identifier is not safe for workspace resolution.",
@@ -315,6 +326,19 @@ function deny(
     reason,
     inputs,
   };
+}
+
+function isPrincipalReference(
+  value: unknown,
+): value is PrincipalReference {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.trim() !== "" &&
+    (value.type === "human" ||
+      value.type === "service" ||
+      value.type === "system")
+  );
 }
 
 async function containsUnsafeLink(
