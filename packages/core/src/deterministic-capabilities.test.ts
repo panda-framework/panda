@@ -7,10 +7,12 @@ import test from "node:test";
 import {
   PANDA_CAPABILITIES,
   createExecutionContext,
+  createGoal,
   createPandaExecution,
   createSignal,
   createTraceRecord,
   type Outcome,
+  type Goal,
   type PandaExecution,
   type Signal,
 } from "@panda/shared";
@@ -20,6 +22,10 @@ import {
   type ActionConnectorRegistry,
   type FilesystemWriteOutcomeData,
 } from "./action-connector.js";
+import {
+  FilesystemEffectObserver,
+  type EffectObserver,
+} from "./effect-observer.js";
 import {
   ExecutionCoordinator,
   InMemoryCapabilityRegistry,
@@ -32,11 +38,13 @@ import {
   registerDeterministicPandaCapabilities,
   type DemoFileAssessment,
   type DemoFileDecision,
+  type DemoFileVerificationAssessment,
 } from "./deterministic-capabilities.js";
 import {
   InMemoryExecutionStore,
   type StoredTraceRecord,
 } from "./execution-store.js";
+import { InMemoryGoalStore, type GoalStore } from "./goal-store.js";
 import {
   V01PolicyEngine,
   V01_FILESYSTEM_POLICY_ID,
@@ -85,11 +93,65 @@ function makeSignal(
   });
 }
 
+function makeGoal(execution: PandaExecution): Goal {
+  const expectedContent = "PANDA v0.1 completed";
+  return createGoal({
+    id: execution.goalId,
+    goalId: execution.goalId,
+    executionId: execution.executionId,
+    correlationId: execution.correlationId,
+    causationId: `sig_${execution.executionId}`,
+    producer,
+    timestamp: fixedTime,
+    objective:
+      "Create proof.txt with the requested UTF-8 content and independently verify it.",
+    priority: 1,
+    constraints: ["execution-workspace-only"],
+    successCriteria: [
+      {
+        id: "criterion_path",
+        description: "Observed relative path matches proof.txt.",
+        evidenceType: "filesystem.relative-path",
+        expected: "proof.txt",
+      },
+      {
+        id: "criterion_content",
+        description: "Observed UTF-8 content matches exactly.",
+        evidenceType: "filesystem.utf8-content",
+        expected: expectedContent,
+      },
+      {
+        id: "criterion_bytes",
+        description: "Observed byte count matches the UTF-8 bytes.",
+        evidenceType: "filesystem.byte-count",
+        expected: Buffer.byteLength(expectedContent, "utf8"),
+      },
+      {
+        id: "criterion_hash",
+        description: "Observed SHA-256 matches the expected bytes.",
+        evidenceType: "filesystem.sha256",
+        expected: createHash("sha256").update(expectedContent).digest("hex"),
+      },
+    ],
+    failureCriteria: [
+      {
+        id: "criterion_verification_failure",
+        description: "Independent evidence does not match every criterion.",
+      },
+    ],
+    status: "active",
+    owner: { id: "panda", type: "system" },
+    dependencyGoalIds: [],
+  });
+}
+
 async function runScenario(
   executionId: string,
   payload: unknown,
   policyEngine?: PolicyEngine,
   actionConnectorRegistry?: ActionConnectorRegistry,
+  effectObserver?: EffectObserver,
+  goalStore?: GoalStore,
 ) {
   const store = new InMemoryExecutionStore();
   const registry = new InMemoryCapabilityRegistry();
@@ -108,18 +170,37 @@ async function runScenario(
       payload: signal,
     }),
   );
+  const goal = goalStore?.getGoal(execution.goalId);
+  const initialCausation =
+    goal === undefined
+      ? signalTrace.id
+      : store.appendTrace(
+          createTraceRecord({
+            executionId: execution.executionId,
+            goalId: execution.goalId,
+            correlationId: execution.correlationId,
+            causationId: signalTrace.id,
+            producer: goal.producer,
+            timestamp: fixedTime,
+            category: "goal",
+            type: "goal.created",
+            payload: goal,
+          }),
+        ).id;
   const unregister = registerDeterministicPandaCapabilities(registry, {
     now: () => fixedTime,
     policyEngine,
     actionConnectorRegistry,
+    effectObserver,
   });
   const result = await new ExecutionCoordinator(store, registry, {
     now: () => fixedTime,
     policyEngine,
+    goalStore,
   }).run({
     executionId: execution.executionId,
     input: signal,
-    causationId: signalTrace.id,
+    causationId: initialCausation,
   });
 
   return {
@@ -127,6 +208,7 @@ async function runScenario(
     registry,
     result,
     signal,
+    goal: goalStore?.getGoal(execution.goalId),
     unregister,
     trace: store.getTrace(execution.executionId),
   };
@@ -274,13 +356,19 @@ test("routes an injected effect denial through Decision with no connector effect
       return base.evaluate(request, signal);
     },
   };
+  const executionId = "exe_phase_5_policy_denial";
+  const goalStore = new InMemoryGoalStore();
+  goalStore.createGoal(makeGoal(makeExecution(executionId)));
   const scenario = await runScenario(
-    "exe_phase_5_policy_denial",
+    executionId,
     {
       path: "proof.txt",
       content: "PANDA v0.1 completed",
     },
     denyingPolicy,
+    undefined,
+    undefined,
+    goalStore,
   );
 
   assert.deepEqual(invocationRoute(scenario.trace), [
@@ -291,6 +379,7 @@ test("routes an injected effect denial through Decision with no connector effect
     "decision",
   ]);
   assert.equal(scenario.result.execution.status, "failed");
+  assert.equal(scenario.goal?.status, "failed");
   const outputs = invocationOutputs(scenario.trace);
   const outcome = outputs.at(-2) as Outcome;
   assert.equal(outcome.kind, "outcome");
@@ -398,6 +487,230 @@ test("executes the authorized write and waits for independent verification", asy
   unregisterConnector();
 });
 
+test("closes the loop only after independent evidence verifies the goal", async (t) => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "panda-verify-route-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const executionId = "exe_phase_7_verified";
+  const policyEngine = new V01PolicyEngine({ dataDirectory: temporaryRoot });
+  const actionConnectorRegistry = new InMemoryActionConnectorRegistry();
+  actionConnectorRegistry.register(
+    new FilesystemActionConnector({
+      policyEngine,
+      now: () => fixedTime,
+    }),
+  );
+  const effectObserver = new FilesystemEffectObserver({
+    policyEngine,
+    now: () => fixedTime,
+  });
+  const goalStore = new InMemoryGoalStore();
+  goalStore.createGoal(makeGoal(makeExecution(executionId)));
+
+  const scenario = await runScenario(
+    executionId,
+    { path: "proof.txt", content: "PANDA v0.1 completed" },
+    policyEngine,
+    actionConnectorRegistry,
+    effectObserver,
+    goalStore,
+  );
+
+  assert.deepEqual(invocationRoute(scenario.trace), [
+    "perception",
+    "analysis",
+    "decision",
+    "action",
+    "perception",
+    "analysis",
+  ]);
+  assert.equal(scenario.result.execution.status, "succeeded");
+  assert.equal(scenario.result.execution.terminalOutcome, "succeeded");
+  assert.equal(scenario.goal?.status, "achieved");
+  assert.equal(scenario.goal?.revision, 1);
+  assert.equal(
+    await readFile(join(policyEngine.workspaceFor(executionId), "proof.txt"), "utf8"),
+    "PANDA v0.1 completed",
+  );
+
+  const outcomeTrace = scenario.trace.find(
+    (record) =>
+      record.category === "outcome" &&
+      isRecord(record.payload) &&
+      record.payload.status === "succeeded",
+  );
+  const observationTrace = scenario.trace.find(
+    (record) =>
+      record.category === "observation" &&
+      record.type === "verification.observed",
+  );
+  const assessmentTrace = scenario.trace.find(
+    (record) =>
+      record.category === "assessment" &&
+      record.type === "verification.verified",
+  );
+  const goalTrace = scenario.trace.find(
+    (record) => record.type === "goal.achieved",
+  );
+  const termination = scenario.trace.find(
+    (record) => record.type === "execution.succeeded",
+  );
+  assert.ok(outcomeTrace);
+  assert.ok(observationTrace);
+  assert.ok(assessmentTrace);
+  assert.ok(goalTrace);
+  assert.ok(termination);
+  assert.ok(isRecord(outcomeTrace.payload));
+  assert.ok(isRecord(observationTrace.payload));
+  assert.ok(isRecord(assessmentTrace.payload));
+  assert.ok(isRecord(goalTrace.payload));
+  assert.equal(
+    observationTrace.payload.causationId,
+    outcomeTrace.payload.id,
+  );
+  assert.equal(
+    assessmentTrace.payload.causationId,
+    observationTrace.payload.id,
+  );
+  assert.equal(goalTrace.payload.causationId, assessmentTrace.payload.id);
+  assert.equal(termination.causationId, goalTrace.id);
+  const verification = assessmentTrace.payload as unknown as DemoFileVerificationAssessment;
+  assert.equal(verification.result.status, "verified");
+  assert.equal(verification.result.checks.length, 4);
+  assert.equal(
+    verification.result.checks.every((check) => check.matches),
+    true,
+  );
+});
+
+test("fails the goal when independent evidence contradicts a completed outcome", async (t) => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "panda-verify-route-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const executionId = "exe_phase_7_mismatch";
+  const policyEngine = new V01PolicyEngine({ dataDirectory: temporaryRoot });
+  const actionConnectorRegistry = new InMemoryActionConnectorRegistry();
+  actionConnectorRegistry.register(
+    new FilesystemActionConnector({ policyEngine, now: () => fixedTime }),
+  );
+  const mismatchedContent = "PANDA v0.1 mismatch";
+  const effectObserver: EffectObserver = {
+    id: "mismatch-fixture-observer",
+    async observe(request) {
+      return {
+        status: "observed",
+        relativePath: request.relativePath,
+        exists: true,
+        content: mismatchedContent,
+        byteCount: Buffer.byteLength(mismatchedContent, "utf8"),
+        contentHash: createHash("sha256").update(mismatchedContent).digest("hex"),
+        hashAlgorithm: "sha256",
+        observedAt: fixedTime,
+      };
+    },
+  };
+  const goalStore = new InMemoryGoalStore();
+  goalStore.createGoal(makeGoal(makeExecution(executionId)));
+
+  const scenario = await runScenario(
+    executionId,
+    { path: "proof.txt", content: "PANDA v0.1 completed" },
+    policyEngine,
+    actionConnectorRegistry,
+    effectObserver,
+    goalStore,
+  );
+
+  assert.deepEqual(invocationRoute(scenario.trace), [
+    "perception",
+    "analysis",
+    "decision",
+    "action",
+    "perception",
+    "analysis",
+    "decision",
+  ]);
+  assert.equal(scenario.result.execution.status, "failed");
+  assert.equal(scenario.goal?.status, "failed");
+  assert.equal(scenario.goal?.revision, 1);
+  const successfulOutcome = scenario.trace.find(
+    (record) =>
+      record.category === "outcome" &&
+      isRecord(record.payload) &&
+      record.payload.status === "succeeded",
+  );
+  const failedVerification = scenario.trace.find(
+    (record) => record.type === "verification.failed",
+  );
+  const finalDecision = scenario.trace.find(
+    (record) => record.type === "decision.verification-failed",
+  );
+  assert.ok(successfulOutcome);
+  assert.ok(failedVerification);
+  assert.ok(finalDecision);
+  assert.ok(isRecord(failedVerification.payload));
+  const assessment =
+    failedVerification.payload as unknown as DemoFileVerificationAssessment;
+  assert.equal(assessment.result.status, "mismatch");
+  assert.equal(
+    assessment.result.checks.some((check) => !check.matches),
+    true,
+  );
+  assert.equal(
+    scenario.trace.some((record) => record.type === "execution.succeeded"),
+    false,
+  );
+});
+
+test("fails verification when independent Perception observes no effect", async (t) => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "panda-verify-route-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const executionId = "exe_phase_7_missing_effect";
+  const policyEngine = new V01PolicyEngine({ dataDirectory: temporaryRoot });
+  const actionConnectorRegistry = new InMemoryActionConnectorRegistry();
+  actionConnectorRegistry.register(
+    new FilesystemActionConnector({ policyEngine, now: () => fixedTime }),
+  );
+  const effectObserver: EffectObserver = {
+    id: "missing-fixture-observer",
+    async observe(request) {
+      return {
+        status: "missing",
+        relativePath: request.relativePath,
+        exists: false,
+        byteCount: 0,
+        observedAt: fixedTime,
+      };
+    },
+  };
+  const goalStore = new InMemoryGoalStore();
+  goalStore.createGoal(makeGoal(makeExecution(executionId)));
+
+  const scenario = await runScenario(
+    executionId,
+    { path: "proof.txt", content: "PANDA v0.1 completed" },
+    policyEngine,
+    actionConnectorRegistry,
+    effectObserver,
+    goalStore,
+  );
+
+  assert.equal(scenario.result.execution.status, "failed");
+  assert.equal(scenario.goal?.status, "failed");
+  const failedVerification = scenario.trace.find(
+    (record) => record.type === "verification.failed",
+  );
+  assert.ok(failedVerification);
+  assert.ok(isRecord(failedVerification.payload));
+  const assessment =
+    failedVerification.payload as unknown as DemoFileVerificationAssessment;
+  assert.equal(assessment.result.status, "mismatch");
+  assert.equal(
+    assessment.result.mismatchReasons.includes(
+      "The expected filesystem target is missing.",
+    ),
+    true,
+  );
+});
+
 test("turns an unknown connector into a structured failed outcome", async () => {
   const actionConnectorRegistry = new InMemoryActionConnectorRegistry();
   const scenario = await runScenario(
@@ -462,13 +775,17 @@ test("preserves unknown effect state when a dispatched connector throws", async 
 });
 
 test("waits for missing content without creating a decision or action request", async () => {
-  const scenario = await runScenario("exe_phase_4_incomplete", {
+  const executionId = "exe_phase_4_incomplete";
+  const goalStore = new InMemoryGoalStore();
+  goalStore.createGoal(makeGoal(makeExecution(executionId)));
+  const scenario = await runScenario(executionId, {
     path: "proof.txt",
-  });
+  }, undefined, undefined, undefined, goalStore);
 
   assert.deepEqual(invocationRoute(scenario.trace), ["perception", "analysis"]);
   assert.equal(scenario.result.execution.status, "waiting");
   assert.equal(scenario.result.execution.activeCapability, "analysis");
+  assert.equal(scenario.goal?.status, "awaiting-human");
   assert.equal(scenario.result.invocationCount, 2);
   const [observation, assessmentValue] = invocationOutputs(scenario.trace);
   assert.ok(isRecord(observation));

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createGoal,
   createPandaExecution,
   type NextStep,
   type PandaCapability,
@@ -16,6 +17,7 @@ import {
   type CapabilityResult,
 } from "./coordinator.js";
 import { InMemoryExecutionStore } from "./execution-store.js";
+import { InMemoryGoalStore } from "./goal-store.js";
 
 const producer = { kind: "runtime", component: "phase-3-test" } as const;
 
@@ -417,6 +419,143 @@ test("converts thrown and invalid capability results into structured failures", 
       false,
     );
   });
+});
+
+test("persists a capability-proposed goal status only after transition commit", async () => {
+  const store = new InMemoryExecutionStore();
+  const goalStore = new InMemoryGoalStore();
+  const registry = new InMemoryCapabilityRegistry();
+  const execution = makeExecution("exe_goal_update", "analysis");
+  const goal = goalStore.createGoal(
+    createGoal({
+      id: execution.goalId,
+      goalId: execution.goalId,
+      executionId: execution.executionId,
+      correlationId: execution.correlationId,
+      producer,
+      timestamp: "2026-08-10T00:00:00.000Z",
+      objective: "Verify the observed effect.",
+      priority: 1,
+      constraints: [],
+      successCriteria: [],
+      failureCriteria: [],
+      status: "active",
+      owner: { id: "panda", type: "system" },
+      dependencyGoalIds: [],
+    }),
+  );
+  store.createExecution(execution);
+  registry.register(
+    capability("analysis", (invocation) => {
+      assert.equal(invocation.goal?.id, goal.id);
+      const output = {
+        id: "asm_goal_verified",
+        executionId: execution.executionId,
+        goalId: execution.goalId,
+        correlationId: execution.correlationId,
+      };
+      return {
+        output,
+        nextStep: {
+          kind: "terminate",
+          outcome: "succeeded",
+          reason: "goal evidence verified",
+        },
+        goalUpdate: {
+          ...goal,
+          revision: goal.revision + 1,
+          causationId: output.id,
+          producer: { kind: "capability", capability: "analysis" },
+          timestamp: "2026-08-10T00:00:01.000Z",
+          status: "achieved",
+          statusReason: "The verification assessment matched.",
+        },
+      };
+    }),
+  );
+
+  const result = await new ExecutionCoordinator(store, registry, {
+    goalStore,
+  }).run({
+    executionId: execution.executionId,
+    input: undefined,
+  });
+
+  assert.equal(result.execution.status, "succeeded");
+  assert.equal(goalStore.getGoal(goal.id)?.status, "achieved");
+  const trace = store.getTrace(execution.executionId);
+  const goalTrace = trace.find((record) => record.type === "goal.achieved");
+  const termination = trace.find(
+    (record) => record.type === "execution.succeeded",
+  );
+  assert.ok(goalTrace);
+  assert.ok(termination);
+  assert.equal(termination.causationId, goalTrace.id);
+  assert.equal(
+    trace.find((record) => record.id === goalTrace.causationId)?.type,
+    "transition.committed",
+  );
+});
+
+test("rejects a goal update inconsistent with its proposed transition", async () => {
+  const store = new InMemoryExecutionStore();
+  const goalStore = new InMemoryGoalStore();
+  const registry = new InMemoryCapabilityRegistry();
+  const execution = makeExecution("exe_invalid_goal_update", "analysis");
+  const goal = goalStore.createGoal(
+    createGoal({
+      id: execution.goalId,
+      goalId: execution.goalId,
+      executionId: execution.executionId,
+      correlationId: execution.correlationId,
+      producer,
+      objective: "Remain consistent.",
+      priority: 1,
+      constraints: [],
+      successCriteria: [],
+      failureCriteria: [],
+      status: "active",
+      owner: { id: "panda", type: "system" },
+      dependencyGoalIds: [],
+    }),
+  );
+  store.createExecution(execution);
+  registry.register(
+    capability("analysis", () => ({
+      output: { id: "asm_invalid_goal" },
+      nextStep: {
+        kind: "terminate",
+        outcome: "failed",
+        reason: "conflicts with achieved",
+      },
+      goalUpdate: {
+        ...goal,
+        revision: goal.revision + 1,
+        causationId: "asm_invalid_goal",
+        producer: { kind: "capability", capability: "analysis" },
+        timestamp: "2026-08-10T00:00:01.000Z",
+        status: "achieved",
+        statusReason: "This must be rejected.",
+      },
+    })),
+  );
+
+  const result = await new ExecutionCoordinator(store, registry, {
+    goalStore,
+  }).run({
+    executionId: execution.executionId,
+    input: undefined,
+  });
+
+  assert.equal(result.execution.status, "failed");
+  assert.equal(result.failure?.code, "INVALID_GOAL_UPDATE");
+  assert.equal(goalStore.getGoal(goal.id)?.status, "active");
+  assert.equal(
+    store
+      .getTrace(execution.executionId)
+      .some((record) => record.category === "goal-status"),
+    false,
+  );
 });
 
 test("stops an unbounded self-transition at the invocation limit", async () => {

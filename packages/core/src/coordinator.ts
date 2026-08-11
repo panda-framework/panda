@@ -11,6 +11,7 @@ import {
   type ExecutionContext,
   type Failure,
   type FailureCategory,
+  type Goal,
   type NextStep,
   type PandaCapability,
   type PandaExecution,
@@ -23,6 +24,7 @@ import {
   type TransitionRequest,
 } from "@panda/shared";
 import type { ExecutionStore, StoredTraceRecord } from "./execution-store.js";
+import { sameGoalDefinition, type GoalStore } from "./goal-store.js";
 import {
   V01PolicyEngine,
   evaluatePolicy,
@@ -31,6 +33,7 @@ import {
 
 export interface CapabilityInvocation<TInput = unknown> {
   readonly context: ExecutionContext;
+  readonly goal?: Goal;
   readonly input: TInput;
   readonly signal: AbortSignal;
 }
@@ -40,6 +43,7 @@ export interface CapabilityResult<TOutput = unknown> {
   readonly nextStep: NextStep;
   readonly policyEvaluations?: readonly PolicyEvaluation[];
   readonly traceEvents?: readonly CapabilityTraceEvent[];
+  readonly goalUpdate?: Goal;
 }
 
 export interface CapabilityTraceEvent {
@@ -164,6 +168,7 @@ export interface ExecutionCoordinatorOptions {
   readonly component?: string;
   readonly now?: () => string;
   readonly policyEngine?: PolicyEngine;
+  readonly goalStore?: GoalStore;
 }
 
 export interface CoordinateExecutionInput {
@@ -218,6 +223,7 @@ export class ExecutionCoordinator {
   private readonly component: string;
   private readonly now: () => string;
   private readonly policyEngine: PolicyEngine;
+  private readonly goalStore?: GoalStore;
   private readonly activeExecutions = new Set<string>();
 
   constructor(
@@ -237,6 +243,7 @@ export class ExecutionCoordinator {
     this.component = options.component ?? "execution-coordinator";
     this.now = options.now ?? nowIso;
     this.policyEngine = options.policyEngine ?? new V01PolicyEngine();
+    this.goalStore = options.goalStore;
   }
 
   async run(input: CoordinateExecutionInput): Promise<CoordinationResult> {
@@ -365,6 +372,21 @@ export class ExecutionCoordinator {
         invocationHistory: [...invocationHistory],
         values: input.contextValues ?? {},
       });
+      const goal = this.goalStore?.getGoal(execution.goalId);
+      if (this.goalStore !== undefined && goal === undefined) {
+        return this.failExecution(
+          execution,
+          {
+            category: "invalid-contract",
+            code: "GOAL_NOT_FOUND",
+            message: `Goal ${execution.goalId} does not exist.`,
+            outcome: "failed",
+          },
+          causationId,
+          invocationCount,
+          lastOutput,
+        );
+      }
       const invocationStarted = this.appendInvocationTrace(
         execution,
         context,
@@ -381,6 +403,7 @@ export class ExecutionCoordinator {
         result = await this.invokeWithinBounds(
           capability,
           context,
+          goal,
           capabilityInput,
           execution.deadline,
           input.signal,
@@ -416,6 +439,7 @@ export class ExecutionCoordinator {
       let nextStep: NextStep;
       let policyEvaluations: readonly PolicyEvaluation[];
       let traceEvents: readonly CapabilityTraceEvent[];
+      let goalUpdate: Goal | undefined;
       try {
         nextStep = validateNextStep(result?.nextStep);
         policyEvaluations = validatePolicyEvaluations(
@@ -425,6 +449,15 @@ export class ExecutionCoordinator {
         traceEvents = validateCapabilityTraceEvents(
           result?.traceEvents,
           execution,
+        );
+        goalUpdate = validateGoalUpdate(
+          result?.goalUpdate,
+          goal,
+          execution,
+          nextStep,
+          result?.output,
+          capability,
+          this.goalStore !== undefined,
         );
       } catch (error) {
         this.assertFresh(execution);
@@ -645,6 +678,35 @@ export class ExecutionCoordinator {
         );
       }
 
+      if (
+        goalUpdate !== undefined &&
+        goal !== undefined &&
+        this.goalStore !== undefined &&
+        !sameGoalSnapshot(goal, this.goalStore.getGoal(goal.goalId))
+      ) {
+        const rejected = this.recordTransition(
+          execution,
+          request,
+          policyTrace.id,
+          "rejected",
+          "The active Goal changed while the capability result was being committed.",
+          policySummary,
+        );
+        return this.failExecution(
+          execution,
+          {
+            category: "conflict",
+            code: "GOAL_CHANGED_DURING_INVOCATION",
+            message:
+              "The active Goal changed before its proposed status transition could commit.",
+            outcome: "failed",
+          },
+          rejected.id,
+          invocationCount,
+          lastOutput,
+        );
+      }
+
       const committed = this.recordTransition(
         execution,
         request,
@@ -653,6 +715,25 @@ export class ExecutionCoordinator {
         undefined,
         policySummary,
       );
+      let stateCausationId = committed.id;
+      if (goalUpdate !== undefined && this.goalStore !== undefined) {
+        const updatedGoal = this.goalStore.updateGoal(
+          goalUpdate,
+          goal?.revision,
+        );
+        stateCausationId = this.store.appendTrace(
+          createTraceRecord({
+            executionId: execution.executionId,
+            goalId: execution.goalId,
+            correlationId: execution.correlationId,
+            causationId: committed.id,
+            producer: updatedGoal.producer,
+            category: "goal-status",
+            type: `goal.${updatedGoal.status}`,
+            payload: updatedGoal,
+          }),
+        ).id;
+      }
 
       if (nextStep.kind === "invoke") {
         execution = this.store.updateExecution({
@@ -663,7 +744,7 @@ export class ExecutionCoordinator {
           statusReason: nextStep.reason,
         });
         capabilityInput = lastOutput;
-        causationId = committed.id;
+        causationId = stateCausationId;
         continue;
       }
 
@@ -673,7 +754,7 @@ export class ExecutionCoordinator {
             executionId: execution.executionId,
             goalId: execution.goalId,
             correlationId: execution.correlationId,
-            causationId: committed.id,
+            causationId: stateCausationId,
             producer: this.runtimeProducer,
             category: "wait",
             type: "execution.waiting",
@@ -698,7 +779,7 @@ export class ExecutionCoordinator {
           executionId: execution.executionId,
           goalId: execution.goalId,
           correlationId: execution.correlationId,
-          causationId: committed.id,
+          causationId: stateCausationId,
           producer: this.runtimeProducer,
           category: "termination",
           type: `execution.${nextStep.outcome}`,
@@ -836,6 +917,7 @@ export class ExecutionCoordinator {
   private async invokeWithinBounds(
     capability: PandaCapability,
     context: ExecutionContext,
+    goal: Goal | undefined,
     input: unknown,
     deadline: string | undefined,
     externalSignal: AbortSignal | undefined,
@@ -844,6 +926,7 @@ export class ExecutionCoordinator {
       (signal) =>
         this.registry.invoke(capability, {
           context,
+          goal,
           input,
           signal,
         }),
@@ -1149,6 +1232,9 @@ function validatePolicyEvaluations(
 }
 
 const CAPABILITY_TRACE_CATEGORIES = new Set<TraceCategory>([
+  "observation",
+  "assessment",
+  "decision",
   "action-request",
   "connector-invocation",
   "outcome",
@@ -1177,6 +1263,10 @@ function validateCapabilityTraceEvents(
       typeof event.type !== "string" ||
       event.type.trim() === "" ||
       !isRecordProducer(event.producer) ||
+      !traceProducerOwnsCategory(
+        event.category as TraceCategory,
+        event.producer as RecordProducer,
+      ) ||
       !("payload" in event) ||
       (isRecord(event.payload) &&
         (("executionId" in event.payload &&
@@ -1197,6 +1287,99 @@ function validateCapabilityTraceEvents(
   }
 
   return value as CapabilityTraceEvent[];
+}
+
+function traceProducerOwnsCategory(
+  category: TraceCategory,
+  producer: RecordProducer,
+): boolean {
+  if (category === "observation") {
+    return (
+      producer.kind === "capability" && producer.capability === "perception"
+    );
+  }
+  if (category === "assessment") {
+    return producer.kind === "capability" && producer.capability === "analysis";
+  }
+  if (category === "decision") {
+    return (
+      producer.kind === "capability" && producer.capability === "decision"
+    );
+  }
+  if (category === "action-request") {
+    return producer.kind === "capability" && producer.capability === "action";
+  }
+  if (category === "connector-invocation") {
+    return producer.kind === "connector";
+  }
+  return category === "outcome";
+}
+
+function validateGoalUpdate(
+  value: unknown,
+  current: Goal | undefined,
+  execution: PandaExecution,
+  nextStep: NextStep,
+  output: unknown,
+  capability: PandaCapability,
+  goalStoreConfigured: boolean,
+): Goal | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const outputId = isRecord(output) ? output.id : undefined;
+  if (
+    !goalStoreConfigured ||
+    current === undefined ||
+    !isRecord(value) ||
+    value.kind !== "goal" ||
+    value.schemaVersion !== PANDA_SCHEMA_VERSION ||
+    value.id !== current.id ||
+    value.goalId !== current.goalId ||
+    value.executionId !== execution.executionId ||
+    value.correlationId !== execution.correlationId ||
+    value.revision !== current.revision + 1 ||
+    value.status === current.status ||
+    typeof value.statusReason !== "string" ||
+    value.statusReason.trim() === "" ||
+    typeof value.timestamp !== "string" ||
+    Number.isNaN(Date.parse(value.timestamp)) ||
+    typeof value.causationId !== "string" ||
+    value.causationId !== outputId ||
+    !isRecordProducer(value.producer) ||
+    value.producer.kind !== "capability" ||
+    value.producer.capability !== capability ||
+    !sameGoalDefinition(current, value as unknown as Goal) ||
+    !goalStatusMatchesNextStep(value.status, nextStep)
+  ) {
+    throw new InvocationBoundaryError({
+      category: "invalid-contract",
+      code: "INVALID_GOAL_UPDATE",
+      message:
+        "A capability returned an invalid, unowned, or transition-inconsistent Goal update.",
+      outcome: "failed",
+    });
+  }
+  return value as unknown as Goal;
+}
+
+function goalStatusMatchesNextStep(
+  status: unknown,
+  nextStep: NextStep,
+): boolean {
+  if (status === "awaiting-human") {
+    return nextStep.kind === "wait";
+  }
+  if (status === "achieved") {
+    return nextStep.kind === "terminate" && nextStep.outcome === "succeeded";
+  }
+  if (status === "failed") {
+    return nextStep.kind === "terminate" && nextStep.outcome === "failed";
+  }
+  if (status === "cancelled") {
+    return nextStep.kind === "terminate" && nextStep.outcome === "cancelled";
+  }
+  return false;
 }
 
 function isRecordProducer(value: unknown): value is RecordProducer {
@@ -1245,6 +1428,16 @@ function sameExecutionState(
     expected.statusReason === current.statusReason &&
     expected.goalIds.length === current.goalIds.length &&
     expected.goalIds.every((id, index) => id === current.goalIds[index])
+  );
+}
+
+function sameGoalSnapshot(
+  expected: Goal,
+  current: Goal | undefined,
+): boolean {
+  return (
+    current !== undefined &&
+    JSON.stringify(expected) === JSON.stringify(current)
   );
 }
 

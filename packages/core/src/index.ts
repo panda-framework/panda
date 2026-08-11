@@ -14,9 +14,11 @@ import {
 } from "@panda/shared";
 
 export * from "./execution-store.js";
+export * from "./goal-store.js";
 export * from "./coordinator.js";
 export * from "./policy.js";
 export * from "./action-connector.js";
+export * from "./effect-observer.js";
 export * from "./deterministic-capabilities.js";
 
 export interface AgentRunContext {

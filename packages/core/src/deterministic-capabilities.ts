@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   createActionRequest,
   createAssessment,
@@ -13,6 +14,8 @@ import {
   type Decision,
   type DecisionOption,
   type EvidenceReference,
+  type Goal,
+  type GoalStatus,
   type InformationNeed,
   type NextStep,
   type Observation,
@@ -25,6 +28,10 @@ import {
   type ActionConnectorRegistry,
   type FilesystemWriteOutcomeData,
 } from "./action-connector.js";
+import {
+  type EffectObserver,
+  type FilesystemEffectObservation,
+} from "./effect-observer.js";
 import type {
   CapabilityImplementation,
   CapabilityInvocation,
@@ -46,6 +53,8 @@ export const ACTION_CONNECTOR_RESUME_EVENT =
   "action.connector.available" as const;
 export const EFFECT_VERIFICATION_RESUME_EVENT =
   "effect.verification.available" as const;
+export const FILESYSTEM_EFFECT_OBSERVATION_TYPE =
+  "filesystem.effect.observed" as const;
 
 export interface DemoFileWriteParameters {
   readonly path: string;
@@ -56,6 +65,7 @@ export interface DemoFileWriteParameters {
 export type DemoFileInputStatus = "ready" | "incomplete" | "invalid";
 
 export interface DemoFileAssessmentResult {
+  readonly kind: "request-readiness";
   readonly status: DemoFileInputStatus;
   readonly path?: string;
   readonly content?: string;
@@ -75,6 +85,32 @@ export type DemoFileAssessmentOption =
 export type DemoFileAssessment = Assessment<
   DemoFileAssessmentResult,
   DemoFileAssessmentOption
+>;
+
+export interface DemoFileVerificationObservation
+  extends FilesystemEffectObservation {
+  readonly actionOutcomeId: string;
+  readonly actionRequestId: string;
+}
+
+export interface DemoFileVerificationCheck {
+  readonly criterionId: string;
+  readonly evidenceType: string;
+  readonly expected: unknown;
+  readonly observed: unknown;
+  readonly matches: boolean;
+}
+
+export interface DemoFileVerificationResult {
+  readonly kind: "effect-verification";
+  readonly status: "verified" | "mismatch" | "unavailable";
+  readonly checks: readonly DemoFileVerificationCheck[];
+  readonly mismatchReasons: readonly string[];
+}
+
+export type DemoFileVerificationAssessment = Assessment<
+  DemoFileVerificationResult,
+  { readonly kind: "accept-verification" | "reject-verification" }
 >;
 
 export type DemoFileDecisionIntent =
@@ -105,6 +141,7 @@ export interface DeterministicCapabilityOptions {
   readonly now?: () => string;
   readonly policyEngine?: PolicyEngine;
   readonly actionConnectorRegistry?: ActionConnectorRegistry;
+  readonly effectObserver?: EffectObserver;
 }
 
 interface InspectedDemoFileInput {
@@ -121,19 +158,28 @@ interface InspectedDemoFileInput {
  * request. It normalizes a canonical Signal and never fills missing values.
  */
 export class DeterministicPerceptionCapability
-  implements CapabilityImplementation<Signal<unknown>, Observation<unknown>>
+  implements
+    CapabilityImplementation<
+      Signal<unknown> | DemoFileActionOutcome,
+      Observation<unknown>
+    >
 {
   readonly capability = "perception" as const;
   private readonly now: () => string;
+  private readonly effectObserver?: EffectObserver;
 
   constructor(options: DeterministicCapabilityOptions = {}) {
     this.now = options.now ?? nowIso;
+    this.effectObserver = options.effectObserver;
   }
 
-  invoke(
-    invocation: CapabilityInvocation<Signal<unknown>>,
-  ): CapabilityResult<Observation<unknown>> {
+  async invoke(
+    invocation: CapabilityInvocation<Signal<unknown> | DemoFileActionOutcome>,
+  ): Promise<CapabilityResult<Observation<unknown>>> {
     throwIfAborted(invocation.signal);
+    if (isOutcome(invocation.input)) {
+      return this.observeCompletedEffect(invocation.input, invocation);
+    }
     const signal = requireSignal(invocation.input, invocation);
     const inspected = inspectDemoFileInput(signal.type, signal.payload);
     const uncertainty = inspected.needs.map((need) => need.reason).join(" ");
@@ -170,13 +216,106 @@ export class DeterministicPerceptionCapability
             ? "The normalized file request is ready for deterministic analysis."
             : "Analysis must classify the preserved incomplete or invalid request.",
       },
+      traceEvents: [
+        {
+          category: "observation",
+          type: "observation.created",
+          producer: observation.producer,
+          payload: observation,
+        },
+      ],
+    };
+  }
+
+  private async observeCompletedEffect(
+    outcome: DemoFileActionOutcome,
+    invocation: CapabilityInvocation,
+  ): Promise<CapabilityResult<Observation<DemoFileVerificationObservation>>> {
+    assertRecordIdentity(
+      outcome as unknown as Record<string, unknown>,
+      invocation,
+      "Outcome",
+    );
+    if (
+      outcome.status !== "succeeded" ||
+      outcome.effectStatus !== "completed" ||
+      !isRecord(outcome.data) ||
+      typeof outcome.data.relativePath !== "string" ||
+      outcome.data.relativePath.trim() === "" ||
+      this.effectObserver === undefined
+    ) {
+      throw new TypeError(
+        "Perception requires a completed filesystem Outcome and configured effect observer.",
+      );
+    }
+    const observed = await this.effectObserver.observe(
+      {
+        executionId: invocation.context.executionId,
+        goalId: invocation.context.goalId,
+        correlationId: invocation.context.correlationId,
+        actionRequestId: outcome.actionRequestId,
+        outcomeId: outcome.id,
+        relativePath: outcome.data.relativePath,
+      },
+      invocation.signal,
+    );
+    const payload: DemoFileVerificationObservation = {
+      ...observed,
+      actionOutcomeId: outcome.id,
+      actionRequestId: outcome.actionRequestId,
+    };
+    const observation = createObservationRecord({
+      executionId: invocation.context.executionId,
+      goalId: invocation.context.goalId,
+      correlationId: invocation.context.correlationId,
+      causationId: outcome.id,
+      producer: { kind: "capability", capability: this.capability },
+      timestamp: this.now(),
+      type: FILESYSTEM_EFFECT_OBSERVATION_TYPE,
+      source: this.effectObserver.id,
+      observedAt: observed.observedAt,
+      receivedAt: this.now(),
+      confidence: observed.status === "failed" ? 0 : 1,
+      uncertainty: observed.error?.message,
+      validationStatus: observed.status === "failed" ? "invalid" : "valid",
+      provenance: {
+        kind: "connector",
+        sourceId: this.effectObserver.id,
+        details: {
+          actionOutcomeId: outcome.id,
+          actionRequestId: outcome.actionRequestId,
+        },
+      },
+      payload,
+    });
+    const nextStep: NextStep = {
+      kind: "invoke",
+      target: "analysis",
+      reason:
+        "Independent filesystem evidence is ready for comparison with the active goal criteria.",
+    };
+    return {
+      output: observation,
+      nextStep,
+      traceEvents: [
+        {
+          category: "observation",
+          type: `verification.${observed.status}`,
+          producer: observation.producer,
+          payload: observation,
+        },
+      ],
     };
   }
 }
 
 /** Classifies the v0.1 request without applying the Phase 5 sandbox policy. */
 export class DeterministicAnalysisCapability
-  implements CapabilityImplementation<Observation<unknown>, DemoFileAssessment>
+  implements
+    CapabilityImplementation<
+      Observation<unknown>,
+      DemoFileAssessment | DemoFileVerificationAssessment
+    >
 {
   readonly capability = "analysis" as const;
   private readonly now: () => string;
@@ -187,9 +326,12 @@ export class DeterministicAnalysisCapability
 
   invoke(
     invocation: CapabilityInvocation<Observation<unknown>>,
-  ): CapabilityResult<DemoFileAssessment> {
+  ): CapabilityResult<DemoFileAssessment | DemoFileVerificationAssessment> {
     throwIfAborted(invocation.signal);
     const observation = requireObservation(invocation.input, invocation);
+    if (observation.type === FILESYSTEM_EFFECT_OBSERVATION_TYPE) {
+      return this.verifyObservedEffect(observation, invocation);
+    }
     const inspected = inspectDemoFileInput(
       observation.type,
       observation.payload,
@@ -225,6 +367,7 @@ export class DeterministicAnalysisCapability
       informationNeeds: inspected.needs,
       options,
       result: {
+        kind: "request-readiness",
         status: inspected.status,
         path: inspected.path,
         content: inspected.content,
@@ -233,9 +376,199 @@ export class DeterministicAnalysisCapability
       },
     });
 
+    const nextStep = analysisNextStep(inspected);
     return {
       output: assessment,
-      nextStep: analysisNextStep(inspected),
+      nextStep,
+      traceEvents: [
+        {
+          category: "assessment",
+          type: "assessment.created",
+          producer: assessment.producer,
+          payload: assessment,
+        },
+      ],
+      goalUpdate:
+        invocation.goal === undefined || inspected.status === "ready"
+          ? undefined
+          : updateGoalStatus(
+              invocation.goal,
+              inspected.status === "incomplete" ? "awaiting-human" : "failed",
+              assessment.id,
+              this.capability,
+              this.now(),
+              inspected.status === "incomplete"
+                ? "Required request information is missing."
+                : "The request contains invalid evidence.",
+            ),
+    };
+  }
+
+  private verifyObservedEffect(
+    observation: Observation<unknown>,
+    invocation: CapabilityInvocation,
+  ): CapabilityResult<DemoFileVerificationAssessment> {
+    const goal = invocation.goal;
+    const payload = requireVerificationObservation(observation.payload);
+    if (observation.causationId !== payload.actionOutcomeId) {
+      throw new TypeError(
+        "The verification Observation must be caused by its associated Action Outcome.",
+      );
+    }
+    if (goal === undefined || goal.goalId !== invocation.context.goalId) {
+      throw new TypeError(
+        "Verification Analysis requires the active canonical Goal snapshot.",
+      );
+    }
+    const expected = verificationExpectations(goal);
+    const observedValues: Readonly<Record<string, unknown>> = {
+      "filesystem.relative-path": payload.relativePath,
+      "filesystem.utf8-content": payload.content,
+      "filesystem.byte-count": payload.byteCount,
+      "filesystem.sha256": payload.contentHash,
+    };
+    const checks = expected.map((criterion) => {
+      const observed = observedValues[criterion.evidenceType];
+      return {
+        criterionId: criterion.id,
+        evidenceType: criterion.evidenceType,
+        expected: criterion.expected,
+        observed,
+        matches:
+          payload.status === "observed" &&
+          payload.exists &&
+          observed === criterion.expected,
+      };
+    });
+    const evidenceConsistencyReasons =
+      payload.status === "observed" && payload.content !== undefined
+        ? [
+            ...(Buffer.byteLength(payload.content, "utf8") === payload.byteCount
+              ? []
+              : ["The observed byte count conflicts with the observed content."]),
+            ...(createHash("sha256").update(payload.content).digest("hex") ===
+            payload.contentHash
+              ? []
+              : ["The observed SHA-256 conflicts with the observed content."]),
+          ]
+        : [];
+    const mismatchReasons = [
+      ...(payload.status === "missing"
+        ? ["The expected filesystem target is missing."]
+        : []),
+      ...(payload.status === "failed"
+        ? [payload.error?.message ?? "The filesystem observation failed."]
+        : []),
+      ...evidenceConsistencyReasons,
+      ...checks
+        .filter((check) => !check.matches)
+        .map(
+          (check) =>
+            `Criterion ${check.criterionId} did not match the observed ${check.evidenceType}.`,
+        ),
+    ];
+    const verified = mismatchReasons.length === 0 && checks.length === 4;
+    const result: DemoFileVerificationResult = {
+      kind: "effect-verification",
+      status: verified
+        ? "verified"
+        : payload.status === "failed"
+          ? "unavailable"
+          : "mismatch",
+      checks,
+      mismatchReasons,
+    };
+    const nextStep: NextStep = verified
+      ? {
+          kind: "terminate",
+          outcome: "succeeded",
+          reason:
+            "Independent filesystem evidence satisfies every explicit goal criterion.",
+        }
+      : {
+          kind: "invoke",
+          target: "decision",
+          reason:
+            "Decision must evaluate the failed filesystem verification and bounded recovery options.",
+        };
+    const assessment = createAssessment<
+      DemoFileVerificationResult,
+      { readonly kind: "accept-verification" | "reject-verification" }
+    >({
+      executionId: invocation.context.executionId,
+      goalId: invocation.context.goalId,
+      correlationId: invocation.context.correlationId,
+      causationId: observation.id,
+      producer: { kind: "capability", capability: this.capability },
+      timestamp: this.now(),
+      summary: verified
+        ? "Independent filesystem evidence matches all goal success criteria."
+        : "Independent filesystem evidence does not satisfy the goal success criteria.",
+      method: "panda.v0.1.filesystem-goal-verification",
+      confidence: payload.status === "failed" ? 0 : 1,
+      evidence: [
+        {
+          id: observation.id,
+          kind: "record",
+          description: "Independent filesystem effect observation",
+        },
+        {
+          id: payload.actionOutcomeId,
+          kind: "record",
+          description: "Completed Action Outcome associated by Perception",
+        },
+      ],
+      assumptions: [],
+      informationNeeds:
+        payload.status === "failed"
+          ? [
+              {
+                field: "filesystem-effect",
+                reason:
+                  payload.error?.message ??
+                  "Independent filesystem evidence is unavailable.",
+                required: true,
+              },
+            ]
+          : [],
+      options: verified
+        ? [
+            {
+              id: "accept-verification",
+              description: "Accept the matching environmental evidence.",
+              value: { kind: "accept-verification" },
+            },
+          ]
+        : [
+            {
+              id: "reject-verification",
+              description: "Reject goal completion from mismatched evidence.",
+              value: { kind: "reject-verification" },
+            },
+          ],
+      result,
+    });
+    return {
+      output: assessment,
+      nextStep,
+      traceEvents: [
+        {
+          category: "assessment",
+          type: verified ? "verification.verified" : "verification.failed",
+          producer: assessment.producer,
+          payload: assessment,
+        },
+      ],
+      goalUpdate: verified
+        ? updateGoalStatus(
+            goal,
+            "achieved",
+            assessment.id,
+            this.capability,
+            this.now(),
+            "Independent filesystem evidence matched all success criteria.",
+          )
+        : undefined,
     };
   }
 }
@@ -244,7 +577,9 @@ export class DeterministicAnalysisCapability
 export class DeterministicDecisionCapability
   implements
     CapabilityImplementation<
-      DemoFileAssessment | DemoFileActionOutcome,
+      | DemoFileAssessment
+      | DemoFileVerificationAssessment
+      | DemoFileActionOutcome,
       DemoFileDecision
     >
 {
@@ -257,12 +592,17 @@ export class DeterministicDecisionCapability
 
   invoke(
     invocation: CapabilityInvocation<
-      DemoFileAssessment | DemoFileActionOutcome
+      | DemoFileAssessment
+      | DemoFileActionOutcome
+      | DemoFileVerificationAssessment
     >,
   ): CapabilityResult<DemoFileDecision> {
     throwIfAborted(invocation.signal);
     if (isOutcome(invocation.input)) {
       return this.decideActionOutcome(invocation.input, invocation);
+    }
+    if (isVerificationAssessment(invocation.input)) {
+      return this.decideVerificationFailure(invocation.input, invocation);
     }
     const assessment = requireAssessment(invocation.input, invocation);
     const result = requireAssessmentResult(assessment.result);
@@ -348,7 +688,18 @@ export class DeterministicDecisionCapability
         nextStep,
       });
 
-      return { output: decision, nextStep };
+      return {
+        output: decision,
+        nextStep,
+        traceEvents: [
+          {
+            category: "decision",
+            type: "decision.created",
+            producer: decision.producer,
+            payload: decision,
+          },
+        ],
+      };
     }
 
     const nextStep: NextStep =
@@ -398,7 +749,107 @@ export class DeterministicDecisionCapability
       nextStep,
     });
 
-    return { output: decision, nextStep };
+    return {
+      output: decision,
+      nextStep,
+      traceEvents: [
+        {
+          category: "decision",
+          type: "decision.created",
+          producer: decision.producer,
+          payload: decision,
+        },
+      ],
+    };
+  }
+
+  private decideVerificationFailure(
+    assessment: DemoFileVerificationAssessment,
+    invocation: CapabilityInvocation,
+  ): CapabilityResult<DemoFileDecision> {
+    assertRecordIdentity(
+      assessment as unknown as Record<string, unknown>,
+      invocation,
+      "Assessment",
+    );
+    if (assessment.result.status === "verified") {
+      throw new TypeError(
+        "Decision must not receive an already verified effect Assessment.",
+      );
+    }
+    const nextStep: NextStep = {
+      kind: "terminate",
+      outcome: "failed",
+      reason:
+        "Independent effect verification failed and the bounded v0.1 fixture has no safe recovery.",
+    };
+    const decision = createDecision<DemoFileDecisionIntent>({
+      executionId: invocation.context.executionId,
+      goalId: invocation.context.goalId,
+      correlationId: invocation.context.correlationId,
+      causationId: assessment.id,
+      producer: { kind: "capability", capability: this.capability },
+      timestamp: this.now(),
+      selectedOption: {
+        id: "terminate-after-verification-failure",
+        description: "Stop without claiming the goal was achieved.",
+        intent: {
+          kind: "no-action",
+          reason:
+            assessment.result.mismatchReasons.join(" ") ||
+            "The environmental effect could not be verified.",
+        },
+      },
+      alternatives: [
+        {
+          id: "future-bounded-recovery",
+          description:
+            "A later profile may safely retry, compensate, or gather more evidence.",
+          intent: {
+            kind: "no-action",
+            reason: "Recovery and retry budgets are outside v0.1.",
+          },
+        },
+      ],
+      decisiveEvidence: [
+        {
+          id: assessment.id,
+          kind: "record",
+          description: "Failed independent effect-verification Assessment",
+        },
+        ...assessment.evidence,
+      ],
+      decisiveConstraints: [
+        "A completed connector Outcome is insufficient evidence of goal success.",
+        "The deterministic v0.1 fixture permits no retry or compensation.",
+      ],
+      rationale:
+        "Independent Perception and Analysis did not establish every explicit success criterion, so safe termination must preserve the failed verification.",
+      nextStep,
+    });
+    return {
+      output: decision,
+      nextStep,
+      traceEvents: [
+        {
+          category: "decision",
+          type: "decision.verification-failed",
+          producer: decision.producer,
+          payload: decision,
+        },
+      ],
+      goalUpdate:
+        invocation.goal === undefined
+          ? undefined
+          : updateGoalStatus(
+              invocation.goal,
+              "failed",
+              decision.id,
+              this.capability,
+              this.now(),
+              "Independent filesystem evidence did not satisfy the goal criteria.",
+            ),
+    };
   }
 
   private decideActionOutcome(
@@ -501,7 +952,29 @@ export class DeterministicDecisionCapability
       nextStep,
     });
 
-    return { output: decision, nextStep };
+    return {
+      output: decision,
+      nextStep,
+      traceEvents: [
+        {
+          category: "decision",
+          type: "decision.action-failed",
+          producer: decision.producer,
+          payload: decision,
+        },
+      ],
+      goalUpdate:
+        invocation.goal === undefined
+          ? undefined
+          : updateGoalStatus(
+              invocation.goal,
+              "failed",
+              decision.id,
+              this.capability,
+              this.now(),
+              `Action did not complete successfully: ${outcomeReason}`,
+            ),
+    };
   }
 }
 
@@ -522,11 +995,13 @@ export class DeterministicActionCapability
   private readonly now: () => string;
   private readonly policyEngine: PolicyEngine;
   private readonly actionConnectorRegistry?: ActionConnectorRegistry;
+  private readonly effectObserver?: EffectObserver;
 
   constructor(options: DeterministicCapabilityOptions = {}) {
     this.now = options.now ?? nowIso;
     this.policyEngine = options.policyEngine ?? new V01PolicyEngine();
     this.actionConnectorRegistry = options.actionConnectorRegistry;
+    this.effectObserver = options.effectObserver;
   }
 
   async invoke(
@@ -601,6 +1076,14 @@ export class DeterministicActionCapability
             "Decision must evaluate the rejected zero-effect policy outcome.",
         },
         policyEvaluations: [evaluation],
+        traceEvents: [
+          {
+            category: "outcome",
+            type: "action.rejected",
+            producer: outcome.producer,
+            payload: outcome,
+          },
+        ],
       };
     }
 
@@ -703,22 +1186,30 @@ export class DeterministicActionCapability
     });
     const completed =
       outcome.status === "succeeded" && outcome.effectStatus === "completed";
+    const verificationEnabled = completed && this.effectObserver !== undefined;
 
     return {
       output: outcome,
-      nextStep: completed
+      nextStep: verificationEnabled
         ? {
-            kind: "wait",
-            reason:
-              "The connector completed the write; independent Phase 7 verification is still required.",
-            resumeOn: EFFECT_VERIFICATION_RESUME_EVENT,
-          }
-        : {
             kind: "invoke",
-            target: "decision",
+            target: "perception",
             reason:
-              "Decision must evaluate the non-success Action outcome and its effect status.",
-          },
+              "Perception must observe the completed filesystem effect independently.",
+          }
+        : completed
+          ? {
+              kind: "wait",
+              reason:
+                "The connector completed the write; independent Phase 7 verification is still required.",
+              resumeOn: EFFECT_VERIFICATION_RESUME_EVENT,
+            }
+          : {
+              kind: "invoke",
+              target: "decision",
+              reason:
+                "Decision must evaluate the non-success Action outcome and its effect status.",
+            },
       policyEvaluations: [evaluation],
       traceEvents: [
         {
@@ -1121,6 +1612,7 @@ function requireAssessment(
 function requireAssessmentResult(value: unknown): DemoFileAssessmentResult {
   if (
     !isRecord(value) ||
+    value.kind !== "request-readiness" ||
     (value.status !== "ready" &&
       value.status !== "incomplete" &&
       value.status !== "invalid") ||
@@ -1130,6 +1622,122 @@ function requireAssessmentResult(value: unknown): DemoFileAssessmentResult {
     throw new TypeError("Decision received an invalid demo file assessment result.");
   }
   return value as unknown as DemoFileAssessmentResult;
+}
+
+function isVerificationAssessment(
+  value: unknown,
+): value is DemoFileVerificationAssessment {
+  return (
+    isRecord(value) &&
+    value.kind === "assessment" &&
+    isRecord(value.result) &&
+    value.result.kind === "effect-verification" &&
+    (value.result.status === "verified" ||
+      value.result.status === "mismatch" ||
+      value.result.status === "unavailable") &&
+    Array.isArray(value.result.checks) &&
+    Array.isArray(value.result.mismatchReasons)
+  );
+}
+
+function requireVerificationObservation(
+  value: unknown,
+): DemoFileVerificationObservation {
+  if (
+    !isRecord(value) ||
+    (value.status !== "observed" &&
+      value.status !== "missing" &&
+      value.status !== "failed") ||
+    typeof value.relativePath !== "string" ||
+    typeof value.exists !== "boolean" ||
+    typeof value.byteCount !== "number" ||
+    !Number.isSafeInteger(value.byteCount) ||
+    value.byteCount < 0 ||
+    typeof value.observedAt !== "string" ||
+    typeof value.actionOutcomeId !== "string" ||
+    typeof value.actionRequestId !== "string"
+  ) {
+    throw new TypeError(
+      "Analysis requires a typed filesystem effect-verification observation.",
+    );
+  }
+  if (
+    (value.status === "observed" &&
+      (value.exists !== true ||
+        typeof value.content !== "string" ||
+        typeof value.contentHash !== "string" ||
+        value.hashAlgorithm !== "sha256")) ||
+    (value.status === "missing" && value.exists !== false) ||
+    (value.status === "failed" && !isRecord(value.error)) ||
+    Number.isNaN(Date.parse(value.observedAt))
+  ) {
+    throw new TypeError(
+      "The filesystem effect-verification observation has inconsistent status evidence.",
+    );
+  }
+  return value as unknown as DemoFileVerificationObservation;
+}
+
+interface VerificationExpectation {
+  readonly id: string;
+  readonly evidenceType:
+    | "filesystem.relative-path"
+    | "filesystem.utf8-content"
+    | "filesystem.byte-count"
+    | "filesystem.sha256";
+  readonly expected: unknown;
+}
+
+const VERIFICATION_EVIDENCE_TYPES = [
+  "filesystem.relative-path",
+  "filesystem.utf8-content",
+  "filesystem.byte-count",
+  "filesystem.sha256",
+] as const;
+
+function verificationExpectations(
+  goal: Goal,
+): readonly VerificationExpectation[] {
+  if (goal.successCriteria.length !== VERIFICATION_EVIDENCE_TYPES.length) {
+    throw new TypeError(
+      "The deterministic v0.1 Goal requires exactly four filesystem success criteria.",
+    );
+  }
+  const expectations = VERIFICATION_EVIDENCE_TYPES.map((evidenceType) => {
+    const criteria = goal.successCriteria.filter(
+      (criterion) => criterion.evidenceType === evidenceType,
+    );
+    if (criteria.length !== 1 || criteria[0].expected === undefined) {
+      throw new TypeError(
+        `Goal verification requires exactly one ${evidenceType} criterion with an expected value.`,
+      );
+    }
+    return {
+      id: criteria[0].id,
+      evidenceType,
+      expected: criteria[0].expected,
+    };
+  });
+  return expectations;
+}
+
+function updateGoalStatus(
+  goal: Goal,
+  status: GoalStatus,
+  causationId: string,
+  capability: "analysis" | "decision",
+  timestamp: string,
+  statusReason: string,
+): Goal {
+  return {
+    ...goal,
+    revision: goal.revision + 1,
+    causationId,
+    producer: { kind: "capability", capability },
+    timestamp,
+    status,
+    statusReason,
+  };
 }
 
 function requireDecision(
