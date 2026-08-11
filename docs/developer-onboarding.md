@@ -13,14 +13,11 @@ architecture, plans, and progress records.
 
 PANDA is a TypeScript pnpm monorepo at an early implementation stage; its root
 package is marked private to prevent accidental package publication. Phases 0
-through 7 are complete: the v0.1 product contract is frozen, additive canonical
-contracts coexist with the legacy scaffold, the execution-scoped in-memory
-store retains ordered causal traces, the dynamic coordinator consumes
-capability-selected routes with bounded execution, and deterministic PANDA
-capabilities now route through an independent transition/effect policy gate,
-an opt-in real filesystem Action connector, and a separate observer that
-verifies explicit Goal criteria. Phase 8, daemon API and SDK integration, is
-the next implementation phase. See
+through 8 are complete. The daemon now owns the execution-scoped stores,
+dynamic coordinator, deterministic capabilities, transition/effect policy,
+real filesystem Action connector, and independent Goal verifier. Its canonical
+HTTP API, typed SDK, and WebSocket trace stream all expose the same retained
+records. Phase 9, the trace dashboard, is the next implementation phase. See
 [Implementation Progress](progress.md) for the current phase and validation
 baseline.
 
@@ -30,11 +27,11 @@ There are two models in the repository today:
 | --- | --- | --- |
 | Capability/state names | Seven legacy states: perception, understanding, memory, planning, decision, execution, reflection | Five PANDA capabilities: perception, analysis, network, decision, action |
 | Routing | `runPandaLoop` requests a predetermined sequence | Each capability returns a policy-permitted next step dynamically |
-| Goals and executions | The application path still uses sessions and messages; canonical contracts, separate in-memory goal/execution stores, an unwired coordinator, and deterministic closed-loop capabilities are available | First-class goals, execution-scoped state, outcomes, failures, and traces |
-| Storage | Process-local session storage plus an isolated in-memory execution and append-only trace store | The Phase 2 port permits replacement; durable storage remains later work |
-| Connectors | Legacy filesystem and GitHub connectors return simulated acceptance; the additive canonical filesystem Action connector performs a real write only when explicitly configured | Narrow, policy-gated connectors report real outcomes; effects are independently verified |
+| Goals and executions | The daemon and SDK use first-class Goals, execution-scoped state, outcomes, verification, failures, and traces; legacy session helpers remain for removal | First-class goals, execution-scoped state, outcomes, failures, and traces |
+| Storage | Process-local Goal and Execution stores with append-only trace history; state is lost on restart | The Phase 2 port permits replacement; durable storage remains later work |
+| Connectors | The daemon-owned canonical filesystem connector performs a policy-authorized sandbox write and the separate observer verifies it; legacy connector classes remain | Narrow, policy-gated connectors report real outcomes; effects are independently verified |
 | Security | Local unauthenticated HTTP/WebSocket scaffold | Explicit principals, policy checks, sandboxing, provenance, and auditable effects |
-| Tests | Five shared contract tests and 65 core tests cover contracts, goal/execution storage, coordination, policy, deterministic closed-loop capabilities, real effects, independent verification/failures, and the legacy runtime; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
+| Tests | Five shared, 66 core, three SDK, and five daemon executable tests cover contracts, storage/events, coordination, policy, the closed loop, API/SDK behavior, WebSocket delivery, and concurrency; remaining packages typecheck | Unit, integration, failure-fixture, and end-to-end release coverage |
 
 Do not extend the seven-state model in new canonical contracts. The migration
 must remain additive until the application path has moved and the Phase 10
@@ -89,7 +86,8 @@ Runtime configuration is read directly from the shell environment:
 | --- | --- | --- |
 | `PANDA_HOST` | `127.0.0.1` | Host used by the daemon listener |
 | `PANDA_PORT` | `4317` | Port used by the daemon listener |
-| `PANDA_DB` | `apps/daemon/data/panda.sqlite` | Returned by configuration, but no database is opened yet |
+| `PANDA_DB` | `apps/daemon/data/panda.sqlite` | Legacy configuration value; no database is opened yet |
+| `PANDA_DATA_DIRECTORY` | `.panda` | Root for per-execution sandbox workspaces used by policy, connector, and observer |
 
 For example:
 
@@ -133,25 +131,26 @@ curl http://127.0.0.1:4317/health
 pnpm run doctor
 ```
 
-Create a run through the API:
+Create a canonical execution through the API:
 
 ```bash
 curl \
   --request POST \
   --header 'content-type: application/json' \
-  --data '{"input":"Explain the current PANDA state."}' \
-  http://127.0.0.1:4317/runs
+  --data '{"payload":{"path":"proof.txt","content":"PANDA v0.1 completed"}}' \
+  http://127.0.0.1:4317/executions
 ```
 
-Then inspect the process-local sessions:
+Then use the returned execution ID to inspect the process-local trace:
 
 ```bash
-curl http://127.0.0.1:4317/sessions
+curl http://127.0.0.1:4317/executions/exe_REPLACE_ME/trace
 ```
 
-Open the dashboard and submit a prompt from **Agent Console**. A successful
-scaffold run returns the fixed `PANDA runtime completed.` response plus memory
-decisions. It does not call an LLM, write a file, or perform a GitHub action.
+The current dashboard is still session-oriented and will be replaced in Phase
+9. Use the API or SDK for canonical execution inspection until that phase is
+complete. The daemon does not call an LLM or GitHub action; the one v0.1 effect
+is a policy-bounded file below its execution workspace.
 
 Stop the development processes with `Ctrl-C`. Sessions disappear when the
 daemon restarts because the store is in memory.
@@ -187,10 +186,10 @@ ignored generated artifacts. Change source files, not compiled output.
 | Workspace | Main entry point | Responsibility and current limits |
 | --- | --- | --- |
 | `@panda/shared` | `packages/shared/src/index.ts` | Additive v0.1 canonical contracts plus legacy session, observation, action, event, config, ID, timestamp, and logger definitions. Canonical records live in `contracts.ts`; legacy callers remain supported. |
-| `@panda/core` | `packages/core/src/index.ts` | Public goal/execution-store, capability-registry, policy, Action-connector, and effect-observer ports; in-memory state; the dynamic execution coordinator; deterministic v0.1 closed-loop capabilities, sandbox policy, real filesystem connector, and independent verifier; plus legacy runtime primitives, connectors, session storage, configuration, and executable tests. The additive canonical path is not wired into the applications yet. |
+| `@panda/core` | `packages/core/src/index.ts` | Public goal/execution-store, capability-registry, policy, Action-connector, and effect-observer ports; in-memory state and trace subscriptions; the dynamic coordinator; deterministic closed-loop capabilities, sandbox policy, real filesystem connector, and independent verifier; plus legacy primitives pending Phase 10. |
 | `@panda/graph` | `packages/graph/src/index.ts` | Compatibility layer named around the original graph/loop concept. It constructs a new runtime and requests the fixed legacy state sequence. |
-| `@panda/sdk` | `packages/sdk/src/index.ts` | Minimal Fetch-based client for daemon health, sessions, and runs. Its default base URL is hard-coded. |
-| `@panda/daemon` | `apps/daemon/src/index.ts` | Owns the Fastify server, process-local sessions, a runtime instance, connector registration, and WebSocket fan-out. |
+| `@panda/sdk` | `packages/sdk/src/index.ts` | Typed Fetch client for health and canonical execution create/list/detail/trace endpoints, with structured daemon errors and a deprecated run alias. |
+| `@panda/daemon` | `apps/daemon/src/index.ts` | Owns one canonical component graph, reusable Fastify server, process-local state, execution API, and WebSocket trace fan-out. |
 | `@panda/cli` | `apps/cli/src/index.ts` | Provides `init`, development process launchers, `doctor`, and version output. |
 | `@panda/dashboard` | `apps/dashboard/src/App.tsx` | Local navigation, run form, session views, and recent event display. Several pages are placeholders. |
 
@@ -200,10 +199,11 @@ Keep dependencies pointing toward lower-level contracts and runtime packages:
 
 ```text
 @panda/shared
-├── @panda/core ──> @panda/graph ──> @panda/daemon
-└── @panda/sdk
-    ├── @panda/cli
-    └── @panda/dashboard
+├── @panda/core ─────────────> @panda/daemon
+├── @panda/sdk
+│   ├── @panda/cli
+│   └── @panda/dashboard
+└── @panda/graph (legacy compatibility)
 ```
 
 The daemon also imports `@panda/shared` and `@panda/core` directly. The root
@@ -218,7 +218,7 @@ versionable layer rather than being duplicated.
 
 ### API run path
 
-A request currently follows this path:
+A canonical request follows this path:
 
 ```text
 Dashboard / CLI / custom caller
@@ -226,36 +226,41 @@ Dashboard / CLI / custom caller
              v
         @panda/sdk
              |
-       POST /runs
+    POST /executions
              |
              v
       Fastify daemon
-       |           |
-       |           +--> global PandaRuntime.observe(user.input)
-       |                stores the observation in global runtime memory
-       |
-       +--> create or update an in-memory PandaSession
-       |
-       +--> runPandaLoop creates a second PandaRuntime
-       |    and requests the fixed legacy transitions
-       |
-       +--> save the returned session and output
-       |
-       +--> publish run events to connected WebSocket clients
+             |
+             +--> daemon-owned runtime creates Signal, Goal, Execution
+             |
+             +--> execution store commits signal and goal traces
+             |
+             +--> coordinator invokes capability-selected routes
+             |    through transition/effect policy
+             |
+             +--> filesystem connector performs the sandboxed effect
+             |
+             +--> separate observer and Analysis verify Goal criteria
+             |
+             +--> stores retain terminal state and causal trace
+             |
+             +--> API returns a view; WebSocket streams committed records
 ```
 
 Important consequences:
 
-- The daemon's global runtime and the runtime created inside `runPandaLoop`
-  are separate instances with separate memory and state.
-- The daemon registers filesystem and GitHub connectors on its global
-  runtime, but the current run path never dispatches an action to them.
-- The fixed graph runner ends in legacy `reflection` and marks the session
-  `completed` regardless of goal verification because goals do not exist yet.
-- The dashboard refreshes sessions after `run.completed` and retains only the
-  latest 100 WebSocket events in browser memory.
-
-These are migration facts, not the target architecture.
+- HTTP views, SDK reads, and WebSocket events all originate from the same
+  daemon-owned stores; there is no request-scoped shadow runtime.
+- Each execution receives distinct execution, goal, correlation, workspace,
+  trace, and causation identities, while the daemon reuses safe registries and
+  policies.
+- WebSocket delivery happens only after a trace record is retained and assigned
+  a sequence. The trace endpoint remains authoritative after reconnect.
+- `/runs` is a deprecated alias into this service. It does not invoke
+  `runPandaLoop`; the graph package and session helpers remain only for the
+  ordered Phase 10 cleanup.
+- The current dashboard has not yet adopted these endpoints; Phase 9 owns that
+  migration.
 
 ### Observation bus and scheduler
 
@@ -285,26 +290,29 @@ runtime-wide legacy state, records the transition, and emits
 
 ### Connectors and actions
 
-`ActionDispatcher` selects a connector by the action's `target`. The current
-filesystem and GitHub connectors validate only action type and return
-`{ accepted: true }`; they do not perform external effects. Connector
-`start()`/`stop()` only toggle health state, and the daemon currently registers
-connectors without starting them.
+The daemon registers `FilesystemActionConnector` in its canonical Action
+connector registry. Decision proposes a typed request, Action evaluates the
+effect policy, the registry dispatches it, and the connector rechecks the
+filesystem boundary before writing. A separate `FilesystemEffectObserver`
+re-resolves and reads the result; the connector's success claims are not
+environmental proof.
 
-Do not treat `ok: true` from these stubs as proof that an effect occurred. The
-approved v0.1 contract requires policy approval, a completed connector effect,
-an independent Perception observation, and Analysis verification before goal
-success.
+The legacy `ActionDispatcher`, `FilesystemConnector`, and `GitHubConnector`
+still exist for compatibility and their `{ accepted: true }` responses are not
+proof of an effect. They are not used by the daemon execution endpoint and are
+scheduled for Phase 10 removal.
 
 ### Sessions and events
 
-`InMemoryPandaStore` keeps `PandaSession` values in a process-local map and
-sorts them by `updatedAt` when listed. `POST /runs` can create a new session or
-append to an existing session selected by `sessionId`.
+`InMemoryExecutionStore` and `InMemoryGoalStore` own process-local canonical
+state. Executions and traces disappear on restart. The execution store assigns
+per-execution trace sequences and gives subscribers immutable snapshots after
+commit.
 
-WebSocket clients receive `run.started`, `run.completed`, and `run.failed`
-events plus an initial log event. Session create/update event variants exist in
-the shared type but are not emitted by the daemon.
+WebSocket clients receive an initial log event followed by
+`execution.recorded` events whose payload is the exact committed trace record.
+Delivery has no durable replay or backpressure; reconnecting clients retrieve
+the complete history from `/executions/:id/trace`.
 
 ## 7. Local interfaces
 
@@ -313,10 +321,12 @@ the shared type but are not emitted by the daemon.
 | Method | Path | Input | Result |
 | --- | --- | --- | --- |
 | `GET` | `/health` | None | `{ ok, name, version }` |
-| `GET` | `/sessions` | None | Sessions sorted newest update first |
-| `GET` | `/sessions/:id` | Session ID in path | Session or `404` |
-| `POST` | `/runs` | `{ input: string, sessionId?: string }` | `{ session, output }`; invalid input is `400` and unknown session is `404` |
-| `GET` WebSocket upgrade | `/events` | None | JSON `PandaEvent` stream |
+| `POST` | `/executions` | `{ type?, source?, payload: { path?, content? } }` | Canonical execution view or structured `400` |
+| `GET` | `/executions` | None | All process-local execution views |
+| `GET` | `/executions/:id` | Execution ID in path | Execution view or structured `404` |
+| `GET` | `/executions/:id/trace` | Execution ID in path | Stored sequence-stable trace or structured `404` |
+| `POST` | `/runs` | Canonical input, or legacy `{ input }` | Deprecated alias returning an execution view |
+| `GET` WebSocket upgrade | `/events` | None | Initial log plus JSON `execution.recorded` events |
 
 The daemon enables permissive CORS and has no authentication. Keep it bound to
 loopback during development. Do not expose the current server to an untrusted
@@ -330,15 +340,18 @@ network.
 const client = new PandaClient({ baseUrl: "http://127.0.0.1:4317" });
 
 await client.health();
-await client.listSessions();
-await client.getSession("ses_...");
-await client.run({ input: "hello" });
-await client.run({ sessionId: "ses_...", input: "continue" });
+const execution = await client.createExecution({
+  payload: { path: "proof.txt", content: "PANDA v0.1 completed" },
+});
+await client.listExecutions();
+await client.getExecution(execution.executionId);
+await client.getExecutionTrace(execution.executionId);
 ```
 
-The SDK throws a generic status-based error for non-2xx responses and does not
-yet expose the daemon's response body, retries, cancellation, timeouts, or a
-WebSocket client.
+The SDK throws `PandaRequestError` for non-2xx responses and preserves the
+daemon's structured error code, message, optional issues, and HTTP status. It
+does not yet implement retries, cancellation, timeouts, or a WebSocket client.
+`run()` remains a deprecated compatibility method.
 
 ### Dashboard
 
@@ -432,23 +445,23 @@ Restart `pnpm dev` if a consumer does not pick up rebuilt package output.
 
 ### Adding tests
 
-The repository uses Node's built-in test runner for executable core tests.
-Current tests live beside the runtime, store, coordinator, and deterministic
-capability implementations under `packages/core/src/*.test.ts`. Add focused
-tests beside the affected implementation using `*.test.ts` when the package's
-test script discovers them, and update that script if a new package begins to
-have runtime tests.
+The repository uses Node's built-in test runner for executable shared, core,
+SDK, and daemon tests. Tests live beside their implementations as
+`src/*.test.ts`. Add focused tests beside the affected implementation and keep
+the package script's build dependencies explicit.
 
 Run the current core suite with:
 
 ```bash
 pnpm --filter @panda/core test
+pnpm --filter @panda/sdk test
+pnpm --filter @panda/daemon test
 ```
 
-That script builds `@panda/shared`, builds `@panda/core`, and runs
-`node --test dist/*.test.js`. Tests for the CLI, daemon, dashboard, graph, SDK,
-and shared packages currently run TypeScript checking only. Do not describe
-those checks as behavioral test coverage.
+These scripts build required workspace dependencies and run
+`node --test dist/*.test.js`. CLI, dashboard, and graph package tests currently
+run TypeScript checking only. Do not describe those checks as behavioral test
+coverage.
 
 There is no configured test coverage threshold, integration-test harness,
 dashboard component test runner, formatter, or linter.
@@ -475,10 +488,9 @@ network, and action responsibilities distinct. Declare supported operations and
 permissions, validate boundary data, use least privilege, and return structured
 outcomes.
 
-Phase 7 now provides the complete embedded closed loop for the one bounded v0.1
-effect. It is enabled only when a caller supplies Goal storage, an Action
-connector registry, and an independent effect observer; the daemon remains on
-the legacy path. Connector dispatch, effect completion, environmental
+Phase 8 wires the complete closed loop into the daemon for the one bounded v0.1
+effect. The daemon owns Goal storage, the Action connector registry, and the
+independent observer. Connector dispatch, effect completion, environmental
 observation, goal verification, and termination remain distinct records and
 states.
 
@@ -489,7 +501,7 @@ states.
 | `pnpm dev` | Runs daemon and dashboard development processes in parallel |
 | `pnpm build` | Builds every workspace recursively in dependency order |
 | `pnpm typecheck` | Builds first, then runs each workspace's no-emit type check |
-| `pnpm test` | Runs every workspace test script; shared and core have executable tests |
+| `pnpm test` | Runs every workspace test script; shared, core, SDK, and daemon have executable tests |
 | `pnpm start` | Starts the already-built daemon from `apps/daemon/dist/index.js` |
 | `pnpm run doctor` | Runs the source CLI and checks the default daemon health endpoint; use `run` because `pnpm doctor` resolves to pnpm's own command |
 | `pnpm generate:wallets` | Generates sensitive seed phrases and public donation addresses |
@@ -641,20 +653,18 @@ The daemon port can be changed with `PANDA_PORT`, but dashboard and default SDK
 URLs must then be updated or configured separately. The dashboard dev port is
 set in both its package script and Vite configuration.
 
-### Sessions disappeared
+### Executions disappeared
 
 This is expected after a daemon restart. `PANDA_DB` is not connected to a
-database implementation, and `InMemoryPandaStore` is the only session store.
+database implementation, and the GoalStore, ExecutionStore, and traces are
+process-local in-memory state.
 
 ### A legacy filesystem or GitHub action reports success but nothing happened
 
 The compatibility connectors are stubs. They return an accepted result for
-supported legacy action types but do not perform the effect. The separate
-canonical Phase 6 Action connector performs a policy-authorized filesystem
-write only when an embedded caller explicitly registers it. The Phase 7
-embedded profile can independently observe and verify that effect when a
-GoalStore and effect observer are also supplied. The daemon does not configure
-that canonical path until Phase 8.
+supported legacy action types but do not perform the effect. Use
+`POST /executions` for the daemon-owned canonical connector, policy sandbox,
+independent observation, and verification path.
 
 ### A package change does not appear in the live app
 
@@ -677,7 +687,7 @@ For a first small code change:
 4. [Conceptual Architecture](architecture/conceptual-architecture.md).
 5. The relevant focused architecture document and ADR.
 
-For Phase 8 or later runtime work, continue with:
+For Phase 9 or later runtime work, continue with:
 
 1. [Framework Requirements](requirements.md).
 2. [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md).

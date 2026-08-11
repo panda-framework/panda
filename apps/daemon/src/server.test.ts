@@ -1,0 +1,201 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import type {
+  PandaApiErrorResponse,
+  PandaEvent,
+  PandaExecutionView,
+  TraceRecord,
+} from "@panda/shared";
+import { createDaemon } from "./server.js";
+
+async function withDaemon(context: test.TestContext) {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "panda-daemon-test-"));
+  const daemon = await createDaemon({ dataDirectory });
+  context.after(async () => {
+    await daemon.app.close();
+    await rm(dataDirectory, { recursive: true, force: true });
+  });
+  return { ...daemon, dataDirectory };
+}
+
+test("API-created execution succeeds and exposes the authoritative trace", async (context) => {
+  const { app, runtime } = await withDaemon(context);
+  const createdResponse = await app.inject({
+    method: "POST",
+    url: "/executions",
+    payload: {
+      source: "daemon-integration-test",
+      payload: { path: "proof.txt", content: "PANDA API completed" },
+    },
+  });
+
+  assert.equal(createdResponse.statusCode, 200);
+  const created = createdResponse.json<PandaExecutionView>();
+  assert.equal(created.executionId, created.execution.executionId);
+  assert.equal(created.status, "succeeded");
+  assert.equal(created.goal.status, "achieved");
+  assert.equal(created.outcome?.status, "succeeded");
+  assert.equal(created.outcome?.effectStatus, "completed");
+  assert.equal(
+    (created.verification?.result as { status?: string }).status,
+    "verified",
+  );
+  assert.equal(
+    created.traceUrl,
+    `/executions/${created.executionId}/trace`,
+  );
+
+  const detail = await app.inject({
+    method: "GET",
+    url: `/executions/${created.executionId}`,
+  });
+  const listed = await app.inject({ method: "GET", url: "/executions" });
+  const trace = await app.inject({
+    method: "GET",
+    url: created.traceUrl,
+  });
+  assert.deepEqual(detail.json(), created);
+  assert.deepEqual(listed.json(), [created]);
+  assert.deepEqual(
+    trace.json(),
+    JSON.parse(
+      JSON.stringify(runtime.executionStore.getTrace(created.executionId)),
+    ),
+  );
+  assert.equal(
+    (trace.json<TraceRecord[]>().at(-1)?.payload as { outcome?: string }).outcome,
+    "succeeded",
+  );
+});
+
+test("WebSocket clients receive every committed material execution record", async (context) => {
+  const { app } = await withDaemon(context);
+  const socket = await app.injectWS("/events");
+  const events: PandaEvent[] = [];
+  const terminal = new Promise<void>((resolve) => {
+    socket.on("message", (message) => {
+      const event = JSON.parse(message.toString()) as PandaEvent;
+      events.push(event);
+      if (
+        event.type === "execution.recorded" &&
+        (event.payload as TraceRecord).category === "termination"
+      ) {
+        resolve();
+      }
+    });
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/executions",
+    payload: { payload: { path: "events.txt", content: "event stream" } },
+  });
+  const created = response.json<PandaExecutionView>();
+  await terminal;
+  const records = events
+    .filter(
+      (event) =>
+        event.type === "execution.recorded" &&
+        event.executionId === created.executionId,
+    )
+    .map((event) => event.payload as TraceRecord);
+
+  assert.ok(records.length > 10);
+  assert.deepEqual(
+    records.map((record) => record.sequence),
+    records.map((_record, index) => index + 1),
+  );
+  assert.equal(records.at(0)?.category, "signal");
+  assert.equal(records.at(-1)?.category, "termination");
+  socket.terminate();
+});
+
+test("concurrent executions keep identity, workspace, and trace isolated", async (context) => {
+  const { app, runtime } = await withDaemon(context);
+  const [firstResponse, secondResponse] = await Promise.all([
+    app.inject({
+      method: "POST",
+      url: "/executions",
+      payload: { payload: { path: "proof.txt", content: "first content" } },
+    }),
+    app.inject({
+      method: "POST",
+      url: "/executions",
+      payload: { payload: { path: "proof.txt", content: "second content" } },
+    }),
+  ]);
+  const first = firstResponse.json<PandaExecutionView>();
+  const second = secondResponse.json<PandaExecutionView>();
+
+  assert.equal(first.status, "succeeded");
+  assert.equal(second.status, "succeeded");
+  assert.notEqual(first.executionId, second.executionId);
+  assert.notEqual(first.goal.id, second.goal.id);
+  assert.equal(
+    await readFile(
+      join(runtime.policyEngine.workspaceFor(first.executionId), "proof.txt"),
+      "utf8",
+    ),
+    "first content",
+  );
+  assert.equal(
+    await readFile(
+      join(runtime.policyEngine.workspaceFor(second.executionId), "proof.txt"),
+      "utf8",
+    ),
+    "second content",
+  );
+  for (const record of runtime.getTrace(first.executionId) ?? []) {
+    assert.equal(record.executionId, first.executionId);
+    assert.notEqual(record.executionId, second.executionId);
+  }
+  for (const record of runtime.getTrace(second.executionId) ?? []) {
+    assert.equal(record.executionId, second.executionId);
+    assert.notEqual(record.executionId, first.executionId);
+  }
+});
+
+test("invalid input and unknown executions return structured client errors", async (context) => {
+  const { app } = await withDaemon(context);
+  const invalid = await app.inject({
+    method: "POST",
+    url: "/executions",
+    payload: { type: "unsupported", payload: "not-an-object" },
+  });
+  const missing = await app.inject({
+    method: "GET",
+    url: "/executions/exe_missing/trace",
+  });
+
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(
+    invalid.json<PandaApiErrorResponse>().error.code,
+    "INVALID_EXECUTION_INPUT",
+  );
+  assert.equal(missing.statusCode, 404);
+  assert.deepEqual(missing.json<PandaApiErrorResponse>().error, {
+    code: "EXECUTION_NOT_FOUND",
+    message: "Execution exe_missing was not found.",
+  });
+});
+
+test("deprecated runs route delegates to the canonical execution service", async (context) => {
+  const { app, runtime } = await withDaemon(context);
+  const response = await app.inject({
+    method: "POST",
+    url: "/runs",
+    payload: { payload: { path: "compat.txt", content: "compatibility" } },
+  });
+  const created = response.json<PandaExecutionView>();
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers.deprecation, "true");
+  assert.equal(created.status, "succeeded");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(runtime.getExecutionView(created.executionId))),
+    created,
+  );
+});

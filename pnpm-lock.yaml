@@ -79,9 +79,6 @@ importers:
       '@panda/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@panda/graph':
-        specifier: workspace:*
-        version: link:../../packages/graph
       '@panda/shared':
         specifier: workspace:*
         version: link:../../packages/shared

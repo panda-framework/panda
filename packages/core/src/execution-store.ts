@@ -23,6 +23,8 @@ export type StoredTraceRecord<TPayload = unknown> = TraceRecord<TPayload> & {
   readonly sequence: number;
 };
 
+export type TraceRecordListener = (record: StoredTraceRecord) => void;
+
 /**
  * Execution-scoped persistence boundary for canonical runtime state and trace
  * history. Implementations own trace sequence assignment and must not expose
@@ -51,6 +53,12 @@ export class InMemoryExecutionStore implements ExecutionStore {
   private readonly executions = new Map<string, PandaExecution>();
   private readonly traces = new Map<string, StoredTraceRecord[]>();
   private readonly traceLocations = new Map<string, TraceLocation>();
+  private readonly traceListeners = new Set<TraceRecordListener>();
+
+  subscribe(listener: TraceRecordListener): () => void {
+    this.traceListeners.add(listener);
+    return () => this.traceListeners.delete(listener);
+  }
 
   createExecution(execution: PandaExecution): PandaExecution {
     if (this.executions.has(execution.executionId)) {
@@ -128,6 +136,14 @@ export class InMemoryExecutionStore implements ExecutionStore {
     this.traceLocations.set(retained.id, {
       executionId: retained.executionId,
     });
+
+    for (const listener of this.traceListeners) {
+      try {
+        listener(snapshot(retained));
+      } catch {
+        // Observers cannot roll back an already committed trace record.
+      }
+    }
 
     return snapshot(retained);
   }

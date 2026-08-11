@@ -7,7 +7,9 @@ applications. It treats every input as an **observation** and every output as an
 types, and the scheduler controls execution.
 
 The LLM is one reasoning component in this architecture. It is not the
-orchestrator.
+orchestrator. The current v0.1 daemon executes one deterministic, policy-gated
+filesystem scenario through five canonical capabilities and requires an
+independent environmental verification before reporting success.
 
 Static project homepage: [`index.html`](./index.html)
 
@@ -136,7 +138,8 @@ panda/
 ### Workspace Packages
 
 - `apps/cli`: `panda` command surface powered by `commander`.
-- `apps/daemon`: local Fastify daemon with HTTP API and WebSocket events.
+- `apps/daemon`: local Fastify daemon that owns the canonical coordinator,
+  stores, policy, connector, observer, HTTP API, and WebSocket trace stream.
 - `apps/dashboard`: React, Vite, TypeScript, Tailwind dashboard.
 - `packages/core`: canonical execution store, capability registry, dynamic
   execution coordinator, in-memory GoalStore, deterministic v0.1 capabilities,
@@ -145,7 +148,7 @@ panda/
   action dispatcher, connectors, sessions, and configuration.
 - `packages/graph`: compatibility wrapper that runs through the event-driven
   runtime instead of a fixed reasoning loop.
-- `packages/sdk`: typed daemon client plus public observation/action types.
+- `packages/sdk`: typed execution/trace daemon client plus public contracts.
 - `packages/shared`: shared schemas, IDs, timestamps, and logger utilities.
 
 ### Runtime Concepts
@@ -183,9 +186,26 @@ await filesystem.observeChange("README.md", "updated");
 await runtime.bus.drain();
 ```
 
-This example uses the compatibility observation connector. The canonical
-closed-loop filesystem execution is an opt-in embedded core API and is not
-wired into the daemon until the ordered integration phase.
+This example uses the compatibility observation connector. The production
+daemon request path instead owns the canonical closed-loop runtime; the legacy
+primitives remain only for the ordered Phase 10 removal.
+
+### Canonical execution API
+
+With the daemon running, create and independently verify a sandboxed file:
+
+```bash
+curl --request POST \
+  --header 'content-type: application/json' \
+  --data '{"payload":{"path":"proof.txt","content":"PANDA v0.1 completed"}}' \
+  http://127.0.0.1:4317/executions
+```
+
+The response includes the execution ID and status, canonical Execution and
+Goal, real Outcome, verification Assessment, and trace URL. Use
+`GET /executions`, `GET /executions/:id`, and
+`GET /executions/:id/trace` to inspect process-local state. `WS /events`
+streams committed trace records.
 
 ### Development
 
@@ -243,9 +263,11 @@ pnpm --filter @panda/cli panda version
 By default the daemon listens on `http://127.0.0.1:4317`.
 
 - `GET /health`
-- `GET /sessions`
-- `GET /sessions/:id`
-- `POST /runs`
+- `POST /executions`
+- `GET /executions`
+- `GET /executions/:id`
+- `GET /executions/:id/trace`
+- `POST /runs` (deprecated compatibility alias)
 - `WS /events`
 
 The dashboard communicates only through the local daemon API and WebSocket.

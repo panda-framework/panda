@@ -28,6 +28,7 @@
 - [Phase 5 Plan](plans/phase-5.md) — transition and effect policy, sandbox boundaries, authorization, and denial routing
 - [Phase 6 Plan](plans/phase-6.md) — responsibility-specific Action connector, real sandboxed writes, and structured effect outcomes
 - [Phase 7 Plan](plans/phase-7.md) — independent effect observation, goal-criteria verification, and closed-loop termination
+- [Phase 8 Plan](plans/phase-8.md) — daemon-owned canonical runtime, execution API, typed SDK, and trace event streaming
 - [GitHub Pull Request Workflow](github-push-workflow.md) — credential-safe validation, commit, push, review, merge, verification, and guarded feature-branch cleanup
 - [Initial Scaffolding](scaffolding.md) — current repository scaffold and deferred implementation work
 
