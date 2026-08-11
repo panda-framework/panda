@@ -12,6 +12,8 @@ This document records the scaffold that exists now.
 - Five canonical capabilities: Perception, Analysis, Network, Decision, and
   Action.
 - Execution-scoped Goal and Execution stores with append-only causal traces.
+- Versioned file-backed local state with restart validation and explicit safe
+  termination of interrupted active work; optional in-memory mode remains.
 - Dynamic, capability-selected coordination with transition and effect policy.
 - Deterministic v0.1 capabilities for the bounded filesystem acceptance case.
 - Responsibility-specific filesystem Action connector and independent effect
@@ -30,10 +32,13 @@ they are not capability or global runtime-state identities.
 
 ## Local service direction
 
-The daemon is a long-lived local Node.js process. Its current stores are
-in-memory and all executions and traces are lost on restart. A future durable
-adapter can replace those stores without changing the canonical execution
-contracts.
+The daemon is a long-lived local Node.js process. Its default adapters retain
+Goals, Executions, and traces as versioned atomic JSON snapshots below
+`.panda/state`. Terminal and waiting work survives restart. Active work whose
+Goal is already terminal is finalized; other active work is failed explicitly.
+Neither path replays Action. The in-memory adapters remain available for
+intentionally ephemeral operation, and a database or broker can replace either
+adapter without changing canonical contracts.
 
 The daemon is unauthenticated and intended only for a loopback development
 environment. The sole v0.1 real effect writes UTF-8 content to a relative path
@@ -41,7 +46,8 @@ inside a per-execution sandbox after policy authorization.
 
 ## Deferred
 
-- Durable persistence and restart recovery
+- Production databases, backups, multi-writer persistence, and exactly-once
+  effect recovery
 - Authentication and production network exposure
 - General planning, durable retries, and automatic wait resumption
 - LLM or model-provider integration

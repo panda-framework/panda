@@ -249,7 +249,7 @@ export function App() {
         </div>
         <div className="hero-stat" aria-label="Execution count">
           <span>{executions.length.toString().padStart(2, "0")}</span>
-          <small>process-local executions</small>
+          <small>durable local executions</small>
         </div>
       </section>
 

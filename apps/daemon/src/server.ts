@@ -67,6 +67,7 @@ export async function createDaemon(
     ok: true,
     name: "panda-daemon",
     version: "0.1.0",
+    persistence: runtime.persistence,
   }));
 
   app.post("/executions", async (request, reply) => {

@@ -1,4 +1,5 @@
 .env
+.panda/
 node_modules/
 generated_wallets/
 .pnpm-store/

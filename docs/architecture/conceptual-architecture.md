@@ -177,10 +177,11 @@ surface. The five capability names are now the only production capability
 identity. Memory remains a persistence concern; planning, understanding, and
 reflection remain implementation techniques.
 
-The current in-memory stores and deterministic capabilities are replaceable
-local implementations, not conceptual requirements. Durable brokers, databases,
-general planning, model providers, and additional connectors remain optional
-future implementations behind the established ports.
+The current file-backed stores, optional in-memory stores, and deterministic
+capabilities are replaceable local implementations, not conceptual
+requirements. Durable brokers, databases, general planning, model providers,
+and additional connectors remain optional future implementations behind the
+established ports.
 
 ## 11. Relationship to established architectures
 

@@ -1,5 +1,6 @@
 export * from "./execution-store.js";
 export * from "./goal-store.js";
+export { PANDA_LOCAL_STATE_VERSION } from "./file-persistence.js";
 export * from "./coordinator.js";
 export * from "./policy.js";
 export * from "./action-connector.js";

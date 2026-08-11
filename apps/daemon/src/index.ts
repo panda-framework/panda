@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { createLogger } from "@panda/shared";
 import { defaultPandaConfig } from "@panda/core";
+import { persistenceModeFromEnvironment } from "./execution-runtime.js";
 import { createDaemon } from "./server.js";
 
 export * from "./execution-runtime.js";
@@ -17,6 +18,7 @@ if (isMain) {
   try {
     const { app } = await createDaemon({
       dataDirectory: process.env.PANDA_DATA_DIRECTORY,
+      persistence: persistenceModeFromEnvironment(process.env.PANDA_PERSISTENCE),
     });
     await app.listen({ host: config.daemonHost, port: config.daemonPort });
     logger.info(`listening on http://${config.daemonHost}:${config.daemonPort}`);

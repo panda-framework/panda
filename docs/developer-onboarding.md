@@ -11,26 +11,28 @@ records.
 
 ## 1. Current project status
 
-Phases 0 through 11 and the local v0.1 release baseline are complete. The daemon
-owns process-local Goal and Execution stores, dynamic coordination,
+Phases 0 through 11 and the local v0.1 release baseline are complete. Phase 12
+adds the first post-v0.1 increment. The daemon owns durable local Goal and
+Execution stores, dynamic coordination,
 deterministic capabilities, transition and effect policy, a real sandboxed
 filesystem Action connector, and independent effect verification. The API,
 SDK, dashboard, and WebSocket stream expose the same retained canonical
-records. The [v0.1 Release Profile](v0.1-release-profile.md) is the authoritative
-support, durability, sandbox, requirements, and limitation record.
+records. The [v0.1 Release Profile](v0.1-release-profile.md) remains the
+authoritative frozen v0.1 record; the [Phase 12 Plan](plans/phase-12.md) defines
+the current durability and restart boundary.
 
-The executable v0.1 baseline is intentionally narrow:
+The current executable development baseline remains intentionally narrow:
 
 | Area | Current behavior |
 | --- | --- |
 | Capabilities | Perception, Analysis, Network, Decision, and Action |
 | Routing | Each capability returns a typed `NextStep`; policy permits or denies the proposed transition |
-| State | Goal and Execution state is isolated by execution ID and retained in memory |
+| State | Goal, Execution, and trace state is isolated by execution ID and retained in versioned local files by default |
 | Effect | One relative-path UTF-8 filesystem write inside a per-execution workspace |
 | Verification | A separate observer reads the environment before Analysis can mark the Goal achieved |
 | Trace | Material records are stored append-only with per-execution sequence, correlation, and causation |
 | Interfaces | Canonical HTTP execution resources, typed SDK methods, WebSocket commit events, and a trace dashboard |
-| Tests | Five shared, 62 core, three SDK, 13 daemon, and five dashboard executable tests, including the eight-case release matrix |
+| Tests | Shared, core, SDK, daemon, and dashboard executable suites include the eight-case release matrix plus file-store and restart recovery coverage |
 
 Memory is a persistence responsibility. Planning, understanding, and reflection
 are techniques that may be used inside Analysis or Decision; none is a runtime
@@ -76,7 +78,8 @@ declarations from ignored `dist/` directories.
 | --- | --- | --- |
 | `PANDA_HOST` | `127.0.0.1` | Daemon listener host |
 | `PANDA_PORT` | `4317` | Daemon listener port |
-| `PANDA_DATA_DIRECTORY` | `.panda` | Root of per-execution filesystem sandboxes |
+| `PANDA_DATA_DIRECTORY` | `.panda` | Root of versioned state snapshots and per-execution effect sandboxes |
+| `PANDA_PERSISTENCE` | `file` | `file` retains local state across restart; `memory` is explicitly ephemeral |
 
 ```bash
 PANDA_HOST=127.0.0.1 PANDA_PORT=4317 pnpm dev
@@ -89,6 +92,8 @@ configuration. Never print or commit populated `.env` files.
 `generated_wallets/` contains recovery phrases if the donation script is run.
 It is ignored secret material: do not commit, paste, log, or share it. Avoid
 `pnpm generate:wallets` unless you explicitly intend to create credentials.
+The default `.panda/` directory is also ignored because persisted JSON traces
+contain request content and evidence in plaintext.
 
 ## 4. Run the local stack
 
@@ -126,7 +131,11 @@ curl http://127.0.0.1:4317/executions/exe_REPLACE_ME/trace
 The dashboard shows the Goal, criteria, dynamic route, source-linked operator
 answers, and complete stored timeline. The daemon does not call an LLM or
 GitHub action. Its one real v0.1 effect is policy-bounded below the execution
-workspace. All process-local state disappears when the daemon restarts.
+workspace. Terminal and waiting state survives restart in the default `file`
+mode. Persisted `pending` or `running` work is failed on startup without Action
+replay unless its Goal was already terminal, in which case the matching
+Execution outcome is finalized. Memory mode intentionally starts empty after
+every restart.
 
 ## 5. Repository map
 
@@ -219,7 +228,7 @@ Important properties:
 | --- | --- | --- |
 | `GET` | `/health` | Daemon identity and health |
 | `POST` | `/executions` | Create an execution from `{ type?, source?, payload: { path?, content? } }` |
-| `GET` | `/executions` | List process-local execution views |
+| `GET` | `/executions` | List retained local execution views |
 | `GET` | `/executions/:id` | Read one execution view or structured `404` |
 | `GET` | `/executions/:id/trace` | Read its sequence-stable trace or structured `404` |
 | WebSocket | `/events` | Initial log event followed by committed `execution.recorded` events |
@@ -373,7 +382,8 @@ cleanup guards pass.
 
 ## 12. Known limitations
 
-- Stores and traces are in memory; there is no restart recovery.
+- The default file store is single-process and local; it has no database,
+  backup, replication, cross-file transaction, or multi-writer coordination.
 - The API has no authentication or production-safe network exposure.
 - Endpoint configuration is not shared across daemon, SDK, CLI, and dashboard.
 - Only the bounded filesystem Action is implemented as a real effect.
@@ -415,8 +425,12 @@ configured deliberately in its consumers.
 
 ### Executions disappeared
 
-This is expected after restart. Goal, Execution, and trace stores are
-process-local and in memory.
+Check the `persistence` field returned by `/health`, the
+`PANDA_PERSISTENCE` setting, and `PANDA_DATA_DIRECTORY`. State disappears after
+restart only in explicit `memory` mode or when the daemon points at a different
+data directory. If file-mode startup rejects state as corrupt, incompatible, or
+incomplete, preserve the data directory for investigation; do not edit or
+delete evidence until the failure is understood.
 
 ## 14. Definition of done
 
