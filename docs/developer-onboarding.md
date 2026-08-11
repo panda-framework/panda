@@ -13,11 +13,13 @@ architecture, plans, and progress records.
 
 PANDA is a TypeScript pnpm monorepo at an early implementation stage; its root
 package is marked private to prevent accidental package publication. Phases 0
-through 8 are complete. The daemon now owns the execution-scoped stores,
+through 9 are complete. The daemon now owns the execution-scoped stores,
 dynamic coordinator, deterministic capabilities, transition/effect policy,
 real filesystem Action connector, and independent Goal verifier. Its canonical
 HTTP API, typed SDK, and WebSocket trace stream all expose the same retained
-records. Phase 9, the trace dashboard, is the next implementation phase. See
+records, and the dashboard renders those executions and their complete causal
+traces without a session-side model. Phase 10, legacy removal, is the next
+implementation phase. See
 [Implementation Progress](progress.md) for the current phase and validation
 baseline.
 
@@ -31,7 +33,7 @@ There are two models in the repository today:
 | Storage | Process-local Goal and Execution stores with append-only trace history; state is lost on restart | The Phase 2 port permits replacement; durable storage remains later work |
 | Connectors | The daemon-owned canonical filesystem connector performs a policy-authorized sandbox write and the separate observer verifies it; legacy connector classes remain | Narrow, policy-gated connectors report real outcomes; effects are independently verified |
 | Security | Local unauthenticated HTTP/WebSocket scaffold | Explicit principals, policy checks, sandboxing, provenance, and auditable effects |
-| Tests | Five shared, 66 core, three SDK, and five daemon executable tests cover contracts, storage/events, coordination, policy, the closed loop, API/SDK behavior, WebSocket delivery, and concurrency; remaining packages typecheck | Unit, integration, failure-fixture, and end-to-end release coverage |
+| Tests | Five shared, 66 core, three SDK, five daemon, and five dashboard executable tests cover contracts, storage/events, coordination, policy, the closed loop, API/SDK behavior, WebSocket delivery, concurrency, trace ordering, causes, and presentation helpers; remaining packages typecheck | Unit, integration, failure-fixture, and end-to-end release coverage |
 
 Do not extend the seven-state model in new canonical contracts. The migration
 must remain additive until the application path has moved and the Phase 10
@@ -147,10 +149,10 @@ Then use the returned execution ID to inspect the process-local trace:
 curl http://127.0.0.1:4317/executions/exe_REPLACE_ME/trace
 ```
 
-The current dashboard is still session-oriented and will be replaced in Phase
-9. Use the API or SDK for canonical execution inspection until that phase is
-complete. The daemon does not call an LLM or GitHub action; the one v0.1 effect
-is a policy-bounded file below its execution workspace.
+Open the dashboard to select the execution, inspect its Goal and criteria,
+review source-linked operator answers, and expand any stored trace payload. The
+daemon does not call an LLM or GitHub action; the one v0.1 effect is a
+policy-bounded file below its execution workspace.
 
 Stop the development processes with `Ctrl-C`. Sessions disappear when the
 daemon restarts because the store is in memory.
@@ -191,7 +193,7 @@ ignored generated artifacts. Change source files, not compiled output.
 | `@panda/sdk` | `packages/sdk/src/index.ts` | Typed Fetch client for health and canonical execution create/list/detail/trace endpoints, with structured daemon errors and a deprecated run alias. |
 | `@panda/daemon` | `apps/daemon/src/index.ts` | Owns one canonical component graph, reusable Fastify server, process-local state, execution API, and WebSocket trace fan-out. |
 | `@panda/cli` | `apps/cli/src/index.ts` | Provides `init`, development process launchers, `doctor`, and version output. |
-| `@panda/dashboard` | `apps/dashboard/src/App.tsx` | Local navigation, run form, session views, and recent event display. Several pages are placeholders. |
+| `@panda/dashboard` | `apps/dashboard/src/App.tsx` | Canonical request form, execution list/detail, Goal criteria, record-derived operator answers, and expandable causal trace timeline with WebSocket-driven refresh. |
 
 ### Dependency direction
 
@@ -259,8 +261,8 @@ Important consequences:
 - `/runs` is a deprecated alias into this service. It does not invoke
   `runPandaLoop`; the graph package and session helpers remain only for the
   ordered Phase 10 cleanup.
-- The current dashboard has not yet adopted these endpoints; Phase 9 owns that
-  migration.
+- The dashboard consumes these endpoints and treats WebSocket records as
+  debounced refresh signals rather than a second trace store.
 
 ### Observation bus and scheduler
 
@@ -360,9 +362,11 @@ port `4317`. Changing `PANDA_PORT` only changes the daemon listener; it does not
 reconfigure the dashboard or the CLI's default SDK client. Update the clients
 deliberately if configurable endpoints become part of the task.
 
-The Home, Agent Console, Memory, and Logs views use live local data. Tasks and
-Settings are placeholder views. There is no router, persisted browser state,
-component test setup, or error message surface yet.
+The dashboard lists canonical executions and displays the selected Goal,
+constraints, success criteria, terminal state, operator reconstruction, and
+full causal timeline. Every trace payload is expandable, and direct causes link
+to their source records. Browser state is not persisted, there is no router or
+server-side pagination, and the daemon remains the source of truth.
 
 ### CLI
 
@@ -459,12 +463,13 @@ pnpm --filter @panda/daemon test
 ```
 
 These scripts build required workspace dependencies and run
-`node --test dist/*.test.js`. CLI, dashboard, and graph package tests currently
-run TypeScript checking only. Do not describe those checks as behavioral test
-coverage.
+`node --test dist/*.test.js`. Dashboard tests build the production bundle and
+run pure trace-presentation helpers from `dist-types`. CLI and graph package
+tests currently run TypeScript checking only. Do not describe those checks as
+behavioral test coverage.
 
-There is no configured test coverage threshold, integration-test harness,
-dashboard component test runner, formatter, or linter.
+There is no configured test coverage threshold, dashboard component test
+runner, formatter, or linter.
 
 ### Changing public contracts
 
@@ -687,7 +692,7 @@ For a first small code change:
 4. [Conceptual Architecture](architecture/conceptual-architecture.md).
 5. The relevant focused architecture document and ADR.
 
-For Phase 9 or later runtime work, continue with:
+For Phase 10 or later runtime work, continue with:
 
 1. [Framework Requirements](requirements.md).
 2. [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md).

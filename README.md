@@ -140,7 +140,8 @@ panda/
 - `apps/cli`: `panda` command surface powered by `commander`.
 - `apps/daemon`: local Fastify daemon that owns the canonical coordinator,
   stores, policy, connector, observer, HTTP API, and WebSocket trace stream.
-- `apps/dashboard`: React, Vite, TypeScript, Tailwind dashboard.
+- `apps/dashboard`: React, Vite, TypeScript, Tailwind execution and causal trace
+  dashboard.
 - `packages/core`: canonical execution store, capability registry, dynamic
   execution coordinator, in-memory GoalStore, deterministic v0.1 capabilities,
   transition/effect policy gate, opt-in real filesystem Action connector, and
@@ -206,6 +207,11 @@ Goal, real Outcome, verification Assessment, and trace URL. Use
 `GET /executions`, `GET /executions/:id`, and
 `GET /executions/:id/trace` to inspect process-local state. `WS /events`
 streams committed trace records.
+
+The dashboard consumes those same resources. It lists process-local
+executions, displays the Goal and explicit success criteria, derives
+source-linked operator answers, and renders every trace record in
+store-assigned causal order with expandable payloads.
 
 ### Development
 
