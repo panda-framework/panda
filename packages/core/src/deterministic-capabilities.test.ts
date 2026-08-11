@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   PANDA_CAPABILITIES,
@@ -11,12 +15,19 @@ import {
   type Signal,
 } from "@panda/shared";
 import {
+  FilesystemActionConnector,
+  InMemoryActionConnectorRegistry,
+  type ActionConnectorRegistry,
+  type FilesystemWriteOutcomeData,
+} from "./action-connector.js";
+import {
   ExecutionCoordinator,
   InMemoryCapabilityRegistry,
 } from "./coordinator.js";
 import {
   ACTION_CONNECTOR_RESUME_EVENT,
   DEMO_FILE_REQUEST_TYPE,
+  EFFECT_VERIFICATION_RESUME_EVENT,
   FILESYSTEM_WRITE_ACTION_TYPE,
   registerDeterministicPandaCapabilities,
   type DemoFileAssessment,
@@ -78,6 +89,7 @@ async function runScenario(
   executionId: string,
   payload: unknown,
   policyEngine?: PolicyEngine,
+  actionConnectorRegistry?: ActionConnectorRegistry,
 ) {
   const store = new InMemoryExecutionStore();
   const registry = new InMemoryCapabilityRegistry();
@@ -99,6 +111,7 @@ async function runScenario(
   const unregister = registerDeterministicPandaCapabilities(registry, {
     now: () => fixedTime,
     policyEngine,
+    actionConnectorRegistry,
   });
   const result = await new ExecutionCoordinator(store, registry, {
     now: () => fixedTime,
@@ -159,7 +172,7 @@ test("routes a complete request through deterministic capabilities and stages no
   assert.equal(scenario.result.invocationCount, 4);
   assert.equal(
     scenario.result.execution.statusReason,
-    "Policy allowed the exact request, but no Action connector is enabled before Phase 6.",
+    "Policy allowed the exact request, but no Action connector registry is configured.",
   );
 
   const [observation, assessmentValue, decisionValue, actionRequest] =
@@ -304,6 +317,148 @@ test("routes an injected effect denial through Decision with no connector effect
     ),
     true,
   );
+});
+
+test("executes the authorized write and waits for independent verification", async (t) => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "panda-action-route-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const policyEngine = new V01PolicyEngine({ dataDirectory: temporaryRoot });
+  const actionConnectorRegistry = new InMemoryActionConnectorRegistry();
+  const unregisterConnector = actionConnectorRegistry.register(
+    new FilesystemActionConnector({
+      policyEngine,
+      now: () => fixedTime,
+    }),
+  );
+  const scenario = await runScenario(
+    "exe_phase_6_write",
+    { path: "nested/proof.txt", content: "PANDA v0.1 completed" },
+    policyEngine,
+    actionConnectorRegistry,
+  );
+
+  assert.deepEqual(invocationRoute(scenario.trace), [
+    "perception",
+    "analysis",
+    "decision",
+    "action",
+  ]);
+  assert.equal(scenario.result.execution.status, "waiting");
+  assert.equal(scenario.result.execution.activeCapability, "action");
+  assert.equal(
+    scenario.result.execution.statusReason,
+    "The connector completed the write; independent Phase 7 verification is still required.",
+  );
+  assert.equal(
+    await readFile(
+      join(
+        policyEngine.workspaceFor("exe_phase_6_write"),
+        "nested",
+        "proof.txt",
+      ),
+      "utf8",
+    ),
+    "PANDA v0.1 completed",
+  );
+
+  const actionTrace = scenario.trace.find(
+    (record) => record.category === "action-request",
+  );
+  const connectorTrace = scenario.trace.find(
+    (record) => record.category === "connector-invocation",
+  );
+  const outcomeTrace = scenario.trace.find(
+    (record) => record.category === "outcome",
+  );
+  assert.ok(actionTrace);
+  assert.ok(connectorTrace);
+  assert.ok(outcomeTrace);
+  assert.ok(isRecord(actionTrace.payload));
+  assert.ok(isRecord(connectorTrace.payload));
+  assert.ok(isRecord(outcomeTrace.payload));
+  assert.equal(connectorTrace.payload.causationId, actionTrace.payload.id);
+  assert.equal(outcomeTrace.payload.causationId, connectorTrace.payload.id);
+  assert.equal(outcomeTrace.payload.actionRequestId, actionTrace.payload.id);
+  assert.equal(outcomeTrace.payload.status, "succeeded");
+  assert.equal(outcomeTrace.payload.effectStatus, "completed");
+  const outcomeData = outcomeTrace.payload.data as FilesystemWriteOutcomeData;
+  assert.equal(outcomeData.bytesWritten, 20);
+  assert.equal(
+    outcomeData.contentHash,
+    createHash("sha256").update("PANDA v0.1 completed").digest("hex"),
+  );
+  assert.equal(actionTrace.causationId?.startsWith("trace_"), true);
+  assert.equal(connectorTrace.causationId, actionTrace.id);
+  assert.equal(outcomeTrace.causationId, connectorTrace.id);
+  const wait = scenario.trace.at(-1);
+  assert.ok(isRecord(wait?.payload));
+  assert.equal(wait.payload.resumeOn, EFFECT_VERIFICATION_RESUME_EVENT);
+
+  scenario.unregister();
+  unregisterConnector();
+});
+
+test("turns an unknown connector into a structured failed outcome", async () => {
+  const actionConnectorRegistry = new InMemoryActionConnectorRegistry();
+  const scenario = await runScenario(
+    "exe_phase_6_missing_connector",
+    { path: "proof.txt", content: "PANDA v0.1 completed" },
+    new V01PolicyEngine(),
+    actionConnectorRegistry,
+  );
+
+  assert.deepEqual(invocationRoute(scenario.trace), [
+    "perception",
+    "analysis",
+    "decision",
+    "action",
+    "decision",
+  ]);
+  assert.equal(scenario.result.execution.status, "failed");
+  const outcomeTrace = scenario.trace.find(
+    (record) => record.category === "outcome",
+  );
+  assert.ok(outcomeTrace);
+  assert.ok(isRecord(outcomeTrace.payload));
+  assert.equal(outcomeTrace.payload.status, "failed");
+  assert.equal(outcomeTrace.payload.effectStatus, "none");
+  assert.ok(isRecord(outcomeTrace.payload.error));
+  assert.equal(
+    outcomeTrace.payload.error.code,
+    "ACTION_CONNECTOR_NOT_FOUND",
+  );
+  const connectorTrace = scenario.trace.find(
+    (record) => record.category === "connector-invocation",
+  );
+  assert.equal(connectorTrace?.type, "connector.failed");
+});
+
+test("preserves unknown effect state when a dispatched connector throws", async () => {
+  const actionConnectorRegistry = new InMemoryActionConnectorRegistry();
+  actionConnectorRegistry.register({
+    id: "filesystem",
+    actionTypes: ["filesystem.write"],
+    execute() {
+      throw new Error("connector lost contact after dispatch");
+    },
+  });
+  const scenario = await runScenario(
+    "exe_phase_6_connector_throw",
+    { path: "proof.txt", content: "PANDA v0.1 completed" },
+    new V01PolicyEngine(),
+    actionConnectorRegistry,
+  );
+
+  assert.equal(scenario.result.execution.status, "failed");
+  const outcomeTrace = scenario.trace.find(
+    (record) => record.category === "outcome",
+  );
+  assert.ok(outcomeTrace);
+  assert.ok(isRecord(outcomeTrace.payload));
+  assert.equal(outcomeTrace.payload.status, "indeterminate");
+  assert.equal(outcomeTrace.payload.effectStatus, "unknown");
+  assert.ok(isRecord(outcomeTrace.payload.error));
+  assert.equal(outcomeTrace.payload.error.code, "ACTION_CONNECTOR_FAILED");
 });
 
 test("waits for missing content without creating a decision or action request", async () => {

@@ -140,8 +140,9 @@ panda/
 - `apps/dashboard`: React, Vite, TypeScript, Tailwind dashboard.
 - `packages/core`: canonical execution store, capability registry, dynamic
   execution coordinator, deterministic v0.1 capabilities, transition/effect
-  policy gate, plus the legacy observation bus, scheduler, action dispatcher,
-  connectors, sessions, and configuration.
+  policy gate, opt-in real filesystem Action connector, plus the legacy
+  observation bus, scheduler, action dispatcher, connectors, sessions, and
+  configuration.
 - `packages/graph`: compatibility wrapper that runs through the event-driven
   runtime instead of a fixed reasoning loop.
 - `packages/sdk`: typed daemon client plus public observation/action types.
@@ -156,6 +157,8 @@ panda/
 - `InMemoryObservationBus`: queue-backed bus for local development.
 - `PandaScheduler`: dispatches observations to analyzers by observation type.
 - `ActionDispatcher`: routes actions to the connector that owns the target.
+- `FilesystemActionConnector`: performs the canonical policy-authorized v0.1
+  UTF-8 write inside an execution workspace and returns a structured Outcome.
 - `BaseConnector`: common interface with `start`, `stop`, `subscribe`,
   `publish`, `health`, `metadata`, and optional `execute`.
 - `ObservationMemory`: subscribes to observations and decides whether to store,
@@ -163,7 +166,7 @@ panda/
 - `StateTransitionEngine`: applies transition events without enforcing a fixed
   loop.
 
-### Connector Example
+### Legacy Connector Example
 
 ```ts
 import { FilesystemConnector, PandaRuntime } from "@panda/core";
@@ -177,6 +180,10 @@ await filesystem.start();
 await filesystem.observeChange("README.md", "updated");
 await runtime.bus.drain();
 ```
+
+This example uses the compatibility observation connector. The canonical
+filesystem effect is an opt-in embedded core API and is not wired into the
+daemon until the ordered integration phase.
 
 ### Development
 

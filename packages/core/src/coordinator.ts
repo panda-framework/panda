@@ -18,6 +18,7 @@ import {
   type PolicyEvaluationSummary,
   type RecordProducer,
   type TerminalOutcome,
+  type TraceCategory,
   type TransitionRecord,
   type TransitionRequest,
 } from "@panda/shared";
@@ -38,6 +39,14 @@ export interface CapabilityResult<TOutput = unknown> {
   readonly output: TOutput;
   readonly nextStep: NextStep;
   readonly policyEvaluations?: readonly PolicyEvaluation[];
+  readonly traceEvents?: readonly CapabilityTraceEvent[];
+}
+
+export interface CapabilityTraceEvent {
+  readonly category: TraceCategory;
+  readonly type: string;
+  readonly producer: RecordProducer;
+  readonly payload: unknown;
 }
 
 export interface CapabilityImplementation<TInput = unknown, TOutput = unknown> {
@@ -406,10 +415,15 @@ export class ExecutionCoordinator {
 
       let nextStep: NextStep;
       let policyEvaluations: readonly PolicyEvaluation[];
+      let traceEvents: readonly CapabilityTraceEvent[];
       try {
         nextStep = validateNextStep(result?.nextStep);
         policyEvaluations = validatePolicyEvaluations(
           result?.policyEvaluations,
+          execution,
+        );
+        traceEvents = validateCapabilityTraceEvents(
+          result?.traceEvents,
           execution,
         );
       } catch (error) {
@@ -432,6 +446,13 @@ export class ExecutionCoordinator {
         completionCausationId = this.appendPolicyTrace(
           execution,
           evaluation,
+          completionCausationId,
+        ).id;
+      }
+      for (const event of traceEvents) {
+        completionCausationId = this.appendCapabilityTraceEvent(
+          execution,
+          event,
           completionCausationId,
         ).id;
       }
@@ -751,6 +772,25 @@ export class ExecutionCoordinator {
         category: "policy-evaluation",
         type: `policy.${evaluation.point}.${evaluation.result}`,
         payload: evaluation,
+      }),
+    );
+  }
+
+  private appendCapabilityTraceEvent(
+    execution: PandaExecution,
+    event: CapabilityTraceEvent,
+    causationId: string,
+  ): StoredTraceRecord {
+    return this.store.appendTrace(
+      createTraceRecord({
+        executionId: execution.executionId,
+        goalId: execution.goalId,
+        correlationId: execution.correlationId,
+        causationId,
+        producer: event.producer,
+        category: event.category,
+        type: event.type,
+        payload: event.payload,
       }),
     );
   }
@@ -1106,6 +1146,76 @@ function validatePolicyEvaluations(
   }
 
   return value as PolicyEvaluation[];
+}
+
+const CAPABILITY_TRACE_CATEGORIES = new Set<TraceCategory>([
+  "action-request",
+  "connector-invocation",
+  "outcome",
+]);
+
+function validateCapabilityTraceEvents(
+  value: unknown,
+  execution: PandaExecution,
+): readonly CapabilityTraceEvent[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new InvocationBoundaryError({
+      category: "invalid-contract",
+      code: "INVALID_CAPABILITY_TRACE_EVENTS",
+      message: "Capability trace events must be an array.",
+      outcome: "failed",
+    });
+  }
+
+  for (const event of value) {
+    if (
+      !isRecord(event) ||
+      !CAPABILITY_TRACE_CATEGORIES.has(event.category as TraceCategory) ||
+      typeof event.type !== "string" ||
+      event.type.trim() === "" ||
+      !isRecordProducer(event.producer) ||
+      !("payload" in event) ||
+      (isRecord(event.payload) &&
+        (("executionId" in event.payload &&
+          event.payload.executionId !== execution.executionId) ||
+          ("goalId" in event.payload &&
+            event.payload.goalId !== execution.goalId) ||
+          ("correlationId" in event.payload &&
+            event.payload.correlationId !== execution.correlationId)))
+    ) {
+      throw new InvocationBoundaryError({
+        category: "invalid-contract",
+        code: "INVALID_CAPABILITY_TRACE_EVENTS",
+        message:
+          "A capability returned an invalid or cross-execution trace event.",
+        outcome: "failed",
+      });
+    }
+  }
+
+  return value as CapabilityTraceEvent[];
+}
+
+function isRecordProducer(value: unknown): value is RecordProducer {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (value.kind === "capability") {
+    return PANDA_CAPABILITIES.includes(value.capability as PandaCapability);
+  }
+  if (value.kind === "connector") {
+    return (
+      typeof value.connectorId === "string" && value.connectorId.trim() !== ""
+    );
+  }
+  return (
+    value.kind === "runtime" &&
+    typeof value.component === "string" &&
+    value.component.trim() !== ""
+  );
 }
 
 function summarizePolicyEvaluation(

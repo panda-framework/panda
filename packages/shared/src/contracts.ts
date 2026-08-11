@@ -418,6 +418,25 @@ export function createPolicyEvaluation(
   return createCanonicalRecord("pol", { ...input, kind: "policy-evaluation" });
 }
 
+export interface ConnectorInvocation extends CanonicalRecord {
+  readonly kind: "connector-invocation";
+  readonly connectorId: string;
+  readonly actionRequestId: string;
+  readonly status: "completed" | "failed";
+  readonly startedAt: string;
+  readonly endedAt: string;
+  readonly outcomeId?: string;
+}
+
+export function createConnectorInvocation(
+  input: KindedRecordInput<ConnectorInvocation>,
+): ConnectorInvocation {
+  return createCanonicalRecord("conninv", {
+    ...input,
+    kind: "connector-invocation",
+  });
+}
+
 export interface PolicyEvaluationSummary {
   readonly evaluationId: string;
   readonly policyId: string;
