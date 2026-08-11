@@ -9,6 +9,9 @@ import {
   InMemoryGoalStore,
   V01PolicyEngine,
   registerDeterministicPandaCapabilities,
+  type ActionConnector,
+  type EffectObserver,
+  type PolicyEngine,
   type StoredTraceRecord,
   type TraceRecordListener,
 } from "@panda/core";
@@ -30,6 +33,10 @@ import {
 export interface PandaDaemonRuntimeOptions {
   readonly dataDirectory?: string;
   readonly now?: () => string;
+  readonly executionPolicyEngine?: PolicyEngine;
+  readonly actionConnector?: ActionConnector;
+  readonly effectObserver?: EffectObserver;
+  readonly maxInvocations?: number;
 }
 
 export class PandaDaemonRuntime {
@@ -38,7 +45,7 @@ export class PandaDaemonRuntime {
   readonly capabilityRegistry = new InMemoryCapabilityRegistry();
   readonly actionConnectorRegistry = new InMemoryActionConnectorRegistry();
   readonly policyEngine: V01PolicyEngine;
-  readonly effectObserver: FilesystemEffectObserver;
+  readonly effectObserver: EffectObserver;
   readonly coordinator: ExecutionCoordinator;
   private readonly now: () => string;
 
@@ -47,19 +54,24 @@ export class PandaDaemonRuntime {
     this.policyEngine = new V01PolicyEngine({
       dataDirectory: options.dataDirectory,
     });
-    this.effectObserver = new FilesystemEffectObserver({
-      policyEngine: this.policyEngine,
-      now: this.now,
-    });
-    this.actionConnectorRegistry.register(
-      new FilesystemActionConnector({
+    const executionPolicyEngine =
+      options.executionPolicyEngine ?? this.policyEngine;
+    this.effectObserver =
+      options.effectObserver ??
+      new FilesystemEffectObserver({
         policyEngine: this.policyEngine,
         now: this.now,
-      }),
+      });
+    this.actionConnectorRegistry.register(
+      options.actionConnector ??
+        new FilesystemActionConnector({
+          policyEngine: this.policyEngine,
+          now: this.now,
+        }),
     );
     registerDeterministicPandaCapabilities(this.capabilityRegistry, {
       now: this.now,
-      policyEngine: this.policyEngine,
+      policyEngine: executionPolicyEngine,
       actionConnectorRegistry: this.actionConnectorRegistry,
       effectObserver: this.effectObserver,
     });
@@ -69,8 +81,9 @@ export class PandaDaemonRuntime {
       {
         component: "panda-daemon",
         now: this.now,
-        policyEngine: this.policyEngine,
+        policyEngine: executionPolicyEngine,
         goalStore: this.goalStore,
+        maxInvocations: options.maxInvocations,
       },
     );
   }

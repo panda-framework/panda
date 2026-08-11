@@ -1,9 +1,13 @@
 {
   "name": "panda",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "PANDA is a TypeScript intelligence runtime built around goals, dynamic capability routing, governed actions, and verified outcomes.",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.1",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter @panda/daemon --filter @panda/dashboard dev",
     "build": "pnpm -r build",
