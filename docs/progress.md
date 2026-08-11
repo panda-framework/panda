@@ -2,12 +2,84 @@
 
 ## Current status
 
-- **Latest completed phase:** Phase 11 — Release hardening
+- **Latest completed phase:** Phase 12 — Durable local state and safe restart recovery
 - **Completed:** 2026-08-10
 - **Release baseline:** PANDA v0.1 complete for its frozen local profile
-- **Phase plan:** [Phase 11 Plan](plans/phase-11.md)
-- **Supported surface:** [PANDA v0.1 Release Profile](v0.1-release-profile.md)
+- **Current development baseline:** Post-v0.1 local durability increment complete
+- **Phase plan:** [Phase 12 Plan](plans/phase-12.md)
+- **Frozen release surface:** [PANDA v0.1 Release Profile](v0.1-release-profile.md)
 - **Frozen acceptance contract:** [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md)
+
+## Phase 12 completion
+
+### What was completed
+
+- Added versioned `FileExecutionStore` and `FileGoalStore` adapters that replace
+  state snapshots atomically and rehydrate canonical identity, trace sequence,
+  causation, and Goal revision after restart.
+- Made file persistence the daemon default below `<data>/state`, retained
+  explicit `memory` mode through `PANDA_PERSISTENCE`, and exposed the active mode
+  through daemon/SDK health.
+- Preserved terminal and waiting work across restart without replaying stored
+  subscriber events or automatically resuming waits, and finalized active
+  Executions whose Goals had already reached a terminal state.
+- Added a startup recovery policy for persisted `pending` and `running` work:
+  append `PROCESS_RESTART_INTERRUPTED`, fail the Goal and Execution causally,
+  classify uncertain authorized effects as `unknown`, and never repeat Action.
+- Rejected malformed, incompatible, causally invalid, duplicate, and incomplete
+  persisted state before the daemon accepts work.
+- Updated the README, dashboard wording, onboarding, architecture/scaffold
+  notes, documentation index, implementation plan handoff, and this progress
+  record without retroactively broadening the v0.1 release profile.
+
+### Durability evidence
+
+The restart suite proves that:
+
+```text
+terminal Execution + Goal + 43-record trace
+  -> daemon close
+  -> same data directory reopened
+  -> identical API-visible canonical history
+
+waiting Execution + awaiting-human Goal
+  -> daemon restart
+  -> still waiting
+  -> no automatic Action or recovery failure
+
+active Action execution
+  -> process interruption
+  -> startup detects unfinished work
+  -> effect classified conservatively
+  -> Goal and Execution failed explicitly
+  -> no Action replay
+```
+
+Corrupt JSON, unsupported persistence versions, and incomplete Execution/Goal
+pairs prevent startup. Rehydrated traces continue at the next sequence and
+subscribers receive only new commits.
+
+### Validation results
+
+- `pnpm --filter @panda/core test` — passed 66 core tests, including four
+  file-store persistence cases.
+- `pnpm --filter @panda/daemon test` — passed 19 daemon tests, including the
+  eight-case v0.1 release matrix and six restart/persistence cases.
+- `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm -r typecheck`, and
+  `pnpm test` — passed; the full suite contains 98 executable tests plus CLI
+  typechecking.
+- Built daemon process restart plus typed SDK/API detail and trace reads —
+  passed with persistence `file`, Execution `succeeded`, Goal `achieved`, and 43
+  consecutive records ending in `execution.succeeded`.
+- `git diff --check` — passed; 123 local Markdown paths across 46 files resolve;
+  `.env`, `.panda`, generated wallets, generated output, and temporary runtime
+  state are ignored or absent from the change set.
+- Dashboard production build — passed with the existing Node experimental
+  warning for its Tailwind TypeScript configuration.
+- Required in-app browser QA — attempted twice but blocked before navigation by
+  the existing `Cannot redefine property: process` integration error; no
+  alternate browser driver was substituted.
+- Format and lint — not run because neither workflow is configured.
 
 ## Phase 11 completion
 
@@ -79,18 +151,20 @@ so repeat live visual/interaction QA when the integration initializes.
 
 ## Completed implementation sequence
 
-Phases 0 through 10 froze the acceptance contract, introduced canonical
+Phases 0 through 11 froze the acceptance contract, introduced canonical
 contracts, execution-scoped stores and causal traces, dynamic coordination,
 deterministic capabilities, transition/effect policy, a real sandboxed Action,
 independent verification, daemon/API/SDK integration, the canonical dashboard,
-and legacy-model removal. Their detailed records remain linked from the
+legacy-model removal, and the hardened v0.1 release. Phase 12 then added durable
+local state and safe restart handling. Detailed records remain linked from the
 [documentation index](README.md).
 
 ## Follow-up direction
 
-v0.1 is complete only for the explicitly bounded local profile. Future work
-should begin from the release profile's delegated and unsupported requirement
-lists rather than silently broadening this release claim. Highest-impact areas
-are durable persistence/restart recovery, authenticated principals and network
-boundaries, general planning and bounded recovery, real Network transports,
-human approval/control APIs, and production metrics/privacy/security controls.
+v0.1 remains complete only for the explicitly bounded release profile, while
+Phase 12 is a post-release development increment. Future work should continue
+from the delegated and unsupported requirement lists. Highest-impact areas are
+authenticated principals and network boundaries, general planning and bounded
+recovery, real Network transports, human approval/control APIs, production
+metrics/privacy/security controls, and replacing the local file adapter with a
+transactional multi-process store when deployment needs require it.

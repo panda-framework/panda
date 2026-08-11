@@ -8,15 +8,18 @@ effects, and an append-only causal trace records what the system observed,
 inferred, decided, authorized, executed, and verified.
 
 An LLM may implement reasoning inside a capability, but it is neither required
-nor the orchestrator. The current v0.1 daemon demonstrates the architecture with
+nor the orchestrator. The frozen v0.1 release demonstrated the architecture with
 one deterministic, policy-bounded filesystem action whose effect is
-independently observed before the Goal can succeed.
+independently observed before the Goal can succeed. The current post-v0.1 daemon
+also retains canonical local state across restart and handles interrupted work
+without blindly replaying Action.
 
 - Static project homepage: [`index.html`](./index.html)
 - Documentation index: [`docs/README.md`](./docs/README.md)
 - Developer onboarding: [`docs/developer-onboarding.md`](./docs/developer-onboarding.md)
 - Framework requirements: [`docs/requirements.md`](./docs/requirements.md)
 - v0.1 release profile: [`docs/v0.1-release-profile.md`](./docs/v0.1-release-profile.md)
+- Current implementation progress: [`docs/progress.md`](./docs/progress.md)
 
 ## The five capabilities
 
@@ -75,7 +78,7 @@ panda/
   scripts/
 ```
 
-- `apps/daemon` owns the canonical coordinator, process-local stores, policy,
+- `apps/daemon` owns the canonical coordinator, durable local stores, policy,
   connector, observer, HTTP API, and WebSocket trace stream.
 - `apps/dashboard` displays canonical executions, Goals, source-linked operator
   answers, and sequence-stable causal traces.
@@ -113,7 +116,7 @@ curl --request POST \
 ```
 
 The response includes the execution ID and status, canonical Execution and
-Goal, real Outcome, verification Assessment, and trace URL. Process-local state
+Goal, real Outcome, verification Assessment, and trace URL. Durable local state
 is available through:
 
 - `GET /health`
@@ -125,6 +128,13 @@ is available through:
 
 The server is an unauthenticated local development service. Keep it bound to
 loopback and do not expose it to an untrusted network.
+
+By default, canonical Execution/trace and Goal snapshots are stored below
+`.panda/state`; effect workspaces remain below `.panda/runs`. Completed and
+waiting work survives a daemon restart. Active work with a terminal Goal is
+finalized to that outcome; other work interrupted while `pending` or `running`
+is failed explicitly with `PROCESS_RESTART_INTERRUPTED`. Neither path replays
+Action. Set `PANDA_PERSISTENCE=memory` only when ephemeral state is intentional.
 
 ## SDK example
 
@@ -159,10 +169,12 @@ pnpm --filter @panda/cli panda version
 
 ## Current limits
 
-v0.1 state is process-local and is lost when the daemon restarts. The bounded
-filesystem action is the only supported real effect. Authentication, durable
-storage and retries, general planning, LLM integration, distributed execution,
-multiple agents, plugins, MCP, and cloud deployment are not implemented.
+The file adapter is a single-process local store, not a database, broker,
+multi-writer service, backup system, or exactly-once effect mechanism. It does
+not automatically resume waits or active work. The bounded filesystem action is
+the only supported real effect. Authentication, durable scheduling/retries,
+general planning, LLM integration, distributed execution, multiple agents,
+plugins, MCP, and cloud deployment are not implemented.
 
 <!-- donations:start -->
 ## Donations

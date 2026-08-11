@@ -43,7 +43,12 @@ export class PandaClient {
   }
 
   async health() {
-    return this.request<{ ok: boolean; name: string; version: string }>("/health");
+    return this.request<{
+      ok: boolean;
+      name: string;
+      version: string;
+      persistence: "file" | "memory";
+    }>("/health");
   }
 
   async listExecutions() {
