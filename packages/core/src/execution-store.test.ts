@@ -248,3 +248,28 @@ test("keeps trace history append-only and store-assigned", () => {
     (error) => assertStoreError(error, "TRACE_SEQUENCE_MANAGED"),
   );
 });
+
+test("notifies subscribers with immutable committed trace snapshots", () => {
+  const store = new InMemoryExecutionStore();
+  const execution = makeExecution("exe_subscribed");
+  store.createExecution(execution);
+  const received: TraceRecord[] = [];
+  const unsubscribe = store.subscribe((record) => {
+    received.push(record);
+    (record.payload as { label: string }).label = "listener mutation";
+  });
+
+  const first = store.appendTrace(
+    makeTrace(execution, "trace_subscribed", "signal"),
+  );
+  unsubscribe();
+  store.appendTrace(
+    makeTrace(execution, "trace_after_unsubscribe", "observation", first.id),
+  );
+
+  assert.equal(received.length, 1);
+  assert.equal(received[0].sequence, 1);
+  assert.deepEqual(store.getTrace(execution.executionId)[0].payload, {
+    label: "trace_subscribed",
+  });
+});

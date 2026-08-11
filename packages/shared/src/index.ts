@@ -47,8 +47,10 @@ export interface PandaEvent {
     | "run.started"
     | "run.completed"
     | "run.failed"
+    | "execution.recorded"
     | "log";
   sessionId?: string;
+  executionId?: string;
   payload: unknown;
   createdAt: string;
 }

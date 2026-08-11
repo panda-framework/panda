@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm typecheck"
+    "test": "pnpm --filter @panda/shared build && pnpm build && node --test dist/*.test.js"
   },
   "dependencies": {
     "@panda/shared": "workspace:*"

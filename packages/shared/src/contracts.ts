@@ -495,8 +495,43 @@ export interface TraceRecord<TPayload = unknown> extends CanonicalRecord {
   readonly sequence?: number;
 }
 
+export type StoredPandaTraceRecord<TPayload = unknown> = TraceRecord<TPayload> & {
+  readonly sequence: number;
+};
+
 export function createTraceRecord<TPayload>(
   input: KindedRecordInput<TraceRecord<TPayload>>,
 ): TraceRecord<TPayload> {
   return createCanonicalRecord("trace", { ...input, kind: "trace-record" });
+}
+
+export const PANDA_V01_EXECUTION_REQUEST_TYPE = "demo.file.requested" as const;
+
+export interface PandaExecutionCreateInput {
+  readonly type?: typeof PANDA_V01_EXECUTION_REQUEST_TYPE;
+  readonly source?: string;
+  readonly payload: {
+    readonly path?: string;
+    readonly content?: string;
+  };
+}
+
+export interface PandaExecutionView {
+  readonly executionId: string;
+  readonly status: ExecutionStatus;
+  readonly execution: PandaExecution;
+  readonly goal: Goal;
+  readonly outcome?: Outcome;
+  readonly verification?: Assessment;
+  readonly traceUrl: string;
+}
+
+export interface PandaApiErrorDetail {
+  readonly code: string;
+  readonly message: string;
+  readonly issues?: Readonly<Record<string, readonly string[] | undefined>>;
+}
+
+export interface PandaApiErrorResponse {
+  readonly error: PandaApiErrorDetail;
 }
