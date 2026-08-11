@@ -1,123 +1,63 @@
 # PANDA Agent Framework
 
-PANDA is an open-source intelligence runtime for building event-driven agents,
-automation systems, robotics controllers, monitoring tools, and multimodal
-applications. It treats every input as an **observation** and every output as an
-**action**. Connectors observe the outside world, analyzers react to observation
-types, and the scheduler controls execution.
+PANDA is an open-source TypeScript intelligence runtime for building
+goal-directed agents and automation. Its five independently selectable
+capabilities are **Perception, Analysis, Network, Decision, and Action**. A
+coordinator routes between them dynamically, policy gates transitions and
+effects, and an append-only causal trace records what the system observed,
+inferred, decided, authorized, executed, and verified.
 
-The LLM is one reasoning component in this architecture. It is not the
-orchestrator. The current v0.1 daemon executes one deterministic, policy-gated
-filesystem scenario through five canonical capabilities and requires an
-independent environmental verification before reporting success.
+An LLM may implement reasoning inside a capability, but it is neither required
+nor the orchestrator. The current v0.1 daemon demonstrates the architecture with
+one deterministic, policy-bounded filesystem action whose effect is
+independently observed before the Goal can succeed.
 
-Static project homepage: [`index.html`](./index.html)
+- Static project homepage: [`index.html`](./index.html)
+- Documentation index: [`docs/README.md`](./docs/README.md)
+- Developer onboarding: [`docs/developer-onboarding.md`](./docs/developer-onboarding.md)
+- Framework requirements: [`docs/requirements.md`](./docs/requirements.md)
 
-Project documentation: [`docs/README.md`](./docs/README.md)
+## The five capabilities
 
-Developer onboarding:
-[`docs/developer-onboarding.md`](./docs/developer-onboarding.md)
+- **Perception** accepts and validates signals and observes environmental facts.
+- **Analysis** derives assessments, interprets context, and evaluates evidence.
+- **Network** exchanges information with external people, agents, and systems.
+- **Decision** selects and explains an authorized next step or action candidate.
+- **Action** performs approved effects through responsibility-specific connectors.
 
-Framework requirements: [`docs/requirements.md`](./docs/requirements.md)
-
-## What PANDA Means
-
-- **Perception**: Gather information from users, tools, APIs, sensors, memory,
-  and the surrounding environment.
-- **Understanding**: Interpret context, classify observations, and derive
-  meaning.
-- **Memory**: Store, summarize, or discard observation history.
-- **Planning**: Form candidate paths and execution strategies.
-- **Decision**: Select the next best action, tool, workflow, or agent state.
-- **Execution**: Dispatch actions through connectors.
-- **Reflection**: Evaluate results and emit follow-up observations.
-
-## Core Idea
-
-PANDA is not a linear loop or fixed pipeline. Every state can transition to any
-other state, and transitions are represented as observations rather than direct
-function calls. The scheduler owns execution flow by dispatching observations to
-interested modules.
-
-The runtime starts with an in-memory observation bus and is designed so Redis
-Streams, NATS, Kafka, RabbitMQ, or another durable queue can replace it later.
+These are responsibilities, not stages in a fixed loop. Any capability can
+request any policy-permitted capability, itself, a wait, or termination.
+Memory is persistence used by capabilities; planning, understanding, and
+reflection are techniques used inside capabilities rather than additional
+runtime states.
 
 ```text
-                    +----------------+
-                    | ObservationBus |
-                    +----------------+
-                       ^          |
-   observations        |          | dispatch
- +------------+        |          v
- | Connectors | -----> |    +-----------+       +-----------+
- +------------+             | Scheduler | ----> | Analyzers |
-      ^                     +-----------+       +-----------+
-      | actions                   |                 |
-      |                           v                 | new observations
- +----------------+        +-------------+          |
- | ActionDispatcher | <--- | State Engine | <-------+
- +----------------+        +-------------+
-          |
-          v
-    output connectors
+signal
+  -> Goal + Execution
+  -> capability-selected NextStep
+  -> transition policy
+  -> Decision + effect policy
+  -> Action connector
+  -> independent Perception
+  -> Analysis verifies Goal criteria
+  -> terminal Execution + causal trace
 ```
 
-```text
-Perception -> Execution -> Memory
-```
+## Design goals
 
-```text
-Reflection -> Planning -> Decision -> Perception
-```
+- **Modular:** capability implementations, stores, policies, and connectors are
+  replaceable behind typed boundaries.
+- **Observable and explainable:** material decisions and effects retain identity,
+  provenance, correlation, causation, and ordered trace records.
+- **Non-linear:** routing comes from capability results and policy rather than a
+  predetermined sequence.
+- **Safe by construction:** effects cross an explicit policy and connector
+  boundary and are not considered verified merely because dispatch succeeded.
+- **Model-agnostic and local-first:** rules, people, optimizers, state machines,
+  planners, ML models, or LLMs can implement capabilities without requiring a
+  broker or cloud service.
 
-This fully connected state-machine model supports adaptive reasoning instead of
-pure procedural execution.
-
-## Design Goals
-
-PANDA is designed to be:
-
-- **Modular**: Each agent state can be implemented, extended, or replaced.
-- **Observable**: Agent behavior should be inspectable and traceable.
-- **Explainable**: State transitions and decisions should be understandable.
-- **Composable**: PANDA agents should integrate cleanly with tools, runtimes,
-  products, and other agents.
-- **Deterministic when needed**: Workflows can be constrained for reliability.
-- **Autonomous when possible**: Agents can decide and act with appropriate
-  flexibility.
-- **Connector-first**: Filesystems, browsers, GitHub, Slack, cameras, sensors,
-  databases, REST APIs, BLE, MQTT, and other systems use one connector shape.
-
-## Model Agnostic
-
-PANDA is not tied to a single AI provider or model family. It can support:
-
-- OpenAI
-- Anthropic
-- Gemini
-- Local models
-- Custom reasoning engines
-- Systems that do not require an LLM
-
-## Future Direction
-
-Planned areas of development include:
-
-- Memory
-- Planning
-- Retries
-- Confidence scoring
-- Plugin system
-- Observability
-- Execution tracing
-- Multi-agent collaboration
-- Human approvals
-- Distributed execution
-
-## Initial TypeScript Scaffold
-
-This repository is now organized as a lightweight pnpm monorepo for the initial
-PANDA framework scaffold.
+## Repository
 
 ```text
 panda/
@@ -127,7 +67,6 @@ panda/
     dashboard/
   packages/
     core/
-    graph/
     sdk/
     shared/
   examples/
@@ -135,65 +74,35 @@ panda/
   scripts/
 ```
 
-### Workspace Packages
+- `apps/daemon` owns the canonical coordinator, process-local stores, policy,
+  connector, observer, HTTP API, and WebSocket trace stream.
+- `apps/dashboard` displays canonical executions, Goals, source-linked operator
+  answers, and sequence-stable causal traces.
+- `apps/cli` provides local initialization, development, health, and version
+  commands.
+- `packages/shared` defines canonical records, contracts, IDs, timestamps, and
+  logging utilities.
+- `packages/core` implements stores, dynamic coordination, deterministic v0.1
+  capabilities, policy gates, the filesystem Action connector, and independent
+  effect observation.
+- `packages/sdk` provides a typed client for execution and trace endpoints.
 
-- `apps/cli`: `panda` command surface powered by `commander`.
-- `apps/daemon`: local Fastify daemon that owns the canonical coordinator,
-  stores, policy, connector, observer, HTTP API, and WebSocket trace stream.
-- `apps/dashboard`: React, Vite, TypeScript, Tailwind execution and causal trace
-  dashboard.
-- `packages/core`: canonical execution store, capability registry, dynamic
-  execution coordinator, in-memory GoalStore, deterministic v0.1 capabilities,
-  transition/effect policy gate, opt-in real filesystem Action connector, and
-  independent effect observer, plus the legacy observation bus, scheduler,
-  action dispatcher, connectors, sessions, and configuration.
-- `packages/graph`: compatibility wrapper that runs through the event-driven
-  runtime instead of a fixed reasoning loop.
-- `packages/sdk`: typed execution/trace daemon client plus public contracts.
-- `packages/shared`: shared schemas, IDs, timestamps, and logger utilities.
+## Quick start
 
-### Runtime Concepts
+Prerequisites: Node.js 20 or newer and pnpm 9.x.
 
-- `PandaObservation`: id, timestamp, source, type, priority, confidence, payload,
-  correlation id, and metadata.
-- `PandaAction`: id, timestamp, target connector, type, payload, correlation id,
-  and metadata.
-- `InMemoryObservationBus`: queue-backed bus for local development.
-- `PandaScheduler`: dispatches observations to analyzers by observation type.
-- `ActionDispatcher`: routes actions to the connector that owns the target.
-- `FilesystemActionConnector`: performs the canonical policy-authorized v0.1
-  UTF-8 write inside an execution workspace and returns a structured Outcome.
-- `FilesystemEffectObserver`: independently reads the resulting sandbox file
-  so Analysis can verify explicit Goal criteria before successful termination.
-- `BaseConnector`: common interface with `start`, `stop`, `subscribe`,
-  `publish`, `health`, `metadata`, and optional `execute`.
-- `ObservationMemory`: subscribes to observations and decides whether to store,
-  summarize, or discard them.
-- `StateTransitionEngine`: applies transition events without enforcing a fixed
-  loop.
-
-### Legacy Connector Example
-
-```ts
-import { FilesystemConnector, PandaRuntime } from "@panda/core";
-
-const runtime = new PandaRuntime();
-const filesystem = new FilesystemConnector(runtime.bus);
-
-runtime.registerConnector(filesystem);
-
-await filesystem.start();
-await filesystem.observeChange("README.md", "updated");
-await runtime.bus.drain();
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm typecheck
+pnpm test
+pnpm dev
 ```
 
-This example uses the compatibility observation connector. The production
-daemon request path instead owns the canonical closed-loop runtime; the legacy
-primitives remain only for the ordered Phase 10 removal.
+The daemon listens at `http://127.0.0.1:4317` and the dashboard at
+`http://127.0.0.1:5173` by default.
 
-### Canonical execution API
-
-With the daemon running, create and independently verify a sandboxed file:
+Create and independently verify a sandboxed file:
 
 ```bash
 curl --request POST \
@@ -203,57 +112,40 @@ curl --request POST \
 ```
 
 The response includes the execution ID and status, canonical Execution and
-Goal, real Outcome, verification Assessment, and trace URL. Use
-`GET /executions`, `GET /executions/:id`, and
-`GET /executions/:id/trace` to inspect process-local state. `WS /events`
-streams committed trace records.
+Goal, real Outcome, verification Assessment, and trace URL. Process-local state
+is available through:
 
-The dashboard consumes those same resources. It lists process-local
-executions, displays the Goal and explicit success criteria, derives
-source-linked operator answers, and renders every trace record in
-store-assigned causal order with expandable payloads.
+- `GET /health`
+- `POST /executions`
+- `GET /executions`
+- `GET /executions/:id`
+- `GET /executions/:id/trace`
+- `WS /events`
 
-### Development
+The server is an unauthenticated local development service. Keep it bound to
+loopback and do not expose it to an untrusted network.
 
-Install dependencies:
+## SDK example
 
-```bash
-pnpm install
+```ts
+import { PandaClient } from "@panda/sdk";
+
+const client = new PandaClient();
+const execution = await client.createExecution({
+  source: "example",
+  payload: {
+    path: "proof.txt",
+    content: "PANDA v0.1 completed",
+  },
+});
+
+const trace = await client.getExecutionTrace(execution.executionId);
+console.log(execution.status, trace.length);
 ```
 
-Start daemon and dashboard together:
+See [`examples/basic-run.ts`](./examples/basic-run.ts) for the executable form.
 
-```bash
-pnpm dev
-```
-
-Build everything:
-
-```bash
-pnpm build
-```
-
-Run type checks:
-
-```bash
-pnpm typecheck
-```
-
-Run tests:
-
-```bash
-pnpm test
-```
-
-Start the built daemon:
-
-```bash
-pnpm start
-```
-
-### CLI
-
-The scaffold includes the required initial commands:
+## CLI
 
 ```bash
 pnpm --filter @panda/cli panda init
@@ -264,19 +156,12 @@ pnpm --filter @panda/cli panda doctor
 pnpm --filter @panda/cli panda version
 ```
 
-### Daemon API
+## Current limits
 
-By default the daemon listens on `http://127.0.0.1:4317`.
-
-- `GET /health`
-- `POST /executions`
-- `GET /executions`
-- `GET /executions/:id`
-- `GET /executions/:id/trace`
-- `POST /runs` (deprecated compatibility alias)
-- `WS /events`
-
-The dashboard communicates only through the local daemon API and WebSocket.
+v0.1 state is process-local and is lost when the daemon restarts. The bounded
+filesystem action is the only supported real effect. Authentication, durable
+storage and retries, general planning, LLM integration, distributed execution,
+multiple agents, plugins, MCP, and cloud deployment are not implemented.
 
 <!-- donations:start -->
 ## Donations
@@ -308,17 +193,13 @@ The Ethereum / EVM address can also receive assets on Ethereum, BNB Smart Chain,
 ## License
 
 PANDA source code and executable examples are available under the
-[MIT License](./LICENSE.md#software-license-mit). The original prose, diagrams,
-and other non-code content in this README and `docs/` are available under
+[MIT License](./LICENSE.md#software-license-mit). Original prose, diagrams, and
+other non-code content in this README and `docs/` are available under
 [Creative Commons Attribution 4.0 International](./docs/license.md). See the
 [complete licensing notice](./LICENSE.md) for scope and exclusions.
 
-## Long-Term Vision
+## Long-term vision
 
-The goal of PANDA is to become a standard agent architecture for intelligent
-agents, similar to how MVC became a standard architecture for web applications.
-
-## Guiding Principle
-
-Observe continuously. Schedule deliberately. Decide clearly. Act through
-connectors. Reflect with context.
+PANDA aims to become a reusable architecture for intelligent agents, analogous
+to the role MVC plays in web applications: a shared vocabulary and separation
+of responsibilities without prescribing one implementation technology.

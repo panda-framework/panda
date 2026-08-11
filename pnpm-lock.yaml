@@ -45,6 +45,9 @@ importers:
         specifier: ^6.4.0
         version: 6.4.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     devDependencies:
+      '@panda/sdk':
+        specifier: workspace:*
+        version: link:packages/sdk
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
@@ -134,15 +137,6 @@ importers:
 
   packages/core:
     dependencies:
-      '@panda/shared':
-        specifier: workspace:*
-        version: link:../shared
-
-  packages/graph:
-    dependencies:
-      '@panda/core':
-        specifier: workspace:*
-        version: link:../core
       '@panda/shared':
         specifier: workspace:*
         version: link:../shared

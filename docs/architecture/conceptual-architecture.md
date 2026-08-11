@@ -153,34 +153,34 @@ Human, rules, optimization, state-machine, planner, ML, and LLM implementations 
 
 External inputs and network messages cross trust boundaries. Connectors run with least privilege; secret references—not secret values—flow through contracts. Capability identity and message authenticity matter when crossing processes. Action is the critical effect boundary: validate intent, authorize principal and target, enforce policy/approval, constrain resources, use idempotency where possible, and audit request plus outcome. See [security.md](security.md).
 
-## 10. Repository analysis and migration guidance
+## 10. Repository implementation and migration record
 
-The repository is a TypeScript pnpm monorepo with CLI, daemon, dashboard, core, graph, SDK, and shared packages. No earlier architecture specification existed beyond the root README and `docs/scaffolding.md`.
+The repository is a TypeScript pnpm monorepo with CLI, daemon, dashboard, core,
+SDK, and shared workspaces. The canonical runtime now implements the principal
+boundaries in this specification:
 
-### Preserve
+- distinct typed contracts for signals, observations, assessments, decisions,
+  transitions, Action requests, connector invocations, outcomes, failures,
+  waits, termination, Goals, Executions, and trace records;
+- five registered capability identities with dynamic `NextStep` routing;
+- execution-scoped state, goals, deadlines, cancellation, invocation bounds,
+  and causal traces;
+- separate transition and effect policy checks;
+- a responsibility-specific Action connector whose completed Outcome is
+  independently observed and verified; and
+- daemon, SDK, WebSocket, and dashboard views backed by the same stores.
 
-- `PandaObservation` already carries identity, time, source, priority, confidence, correlation, payload, and metadata.
-- The in-memory bus proves local-first operation and keeps brokers optional.
-- Scheduler registration, action dispatch, connectors, transition history, structured action results, and correlation IDs are useful seeds.
-- The daemon/SDK split hints at a runtime boundary, while `PandaRuntime` can support embedded use.
-- Tests explicitly demonstrate non-adjacent transitions.
+Phase 10 completed the planned migration by deleting the graph compatibility
+workspace, fixed demonstration route, seven-state identity, process-wide
+current-state/session model, simulated connector primitives, and deprecated run
+surface. The five capability names are now the only production capability
+identity. Memory remains a persistence concern; planning, understanding, and
+reflection remain implementation techniques.
 
-### Change or clarify before implementation matures
-
-| Current concept | Finding | Architectural direction |
-| --- | --- | --- |
-| Seven `PandaStateName` values | Conflicts with the five PANDA capabilities and mixes techniques with responsibilities | Replace capability identity with the five names; model memory/persistence, planning, and reflection separately |
-| `runPandaLoop` | Hard-codes Understanding → Planning → Decision → Execution → Reflection | Replace with outcome/transition-driven routing; retire “loop” terminology |
-| All transition requests and completions as observations | Conflates commands, events, observations, and transitions | Keep distinct contracts even if one bus transports them |
-| `PandaAnalyzer extends ObservationHandler` | Makes Analysis the generic runtime handler and omits the other capability contracts | Register typed implementations for all five capabilities |
-| Single `PandaConnector` shape | Mixes observation publishing, action subscription, effect execution, and lifecycle | Split perception adapters, network transports, and action connectors; share optional lifecycle/health traits |
-| `PandaSession.currentState` | Implies one global current stage and cannot represent concurrent work | Track executions, active invocations, goals, and committed transition records |
-| `ObservationMemory` | Memory is a bus subscriber with hidden retention policy | Make persistence a port and retention a policy; avoid calling memory a capability |
-| `ActionDispatcher` | No policy/authorization gate; successful connector result only means accepted | Gate effects and distinguish accepted, executed, verified, and failed outcomes |
-| README terminology | Says PANDA while expanding to Perception/Understanding/Memory/Planning/Decision/Execution/Reflection | Align public vocabulary with the five-capability definition |
-| Graph compatibility wrapper | Name suggests graph while implementing a fixed demonstration path | A graph may be one coordinator implementation, never the conceptual model |
-
-There is currently little capability-to-capability direct coupling; the stronger coupling is semantic—shared “observation” transport and a single current state. Production source is intentionally unchanged by this architecture task.
+The current in-memory stores and deterministic capabilities are replaceable
+local implementations, not conceptual requirements. Durable brokers, databases,
+general planning, model providers, and additional connectors remain optional
+future implementations behind the established ports.
 
 ## 11. Relationship to established architectures
 

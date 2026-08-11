@@ -19,7 +19,6 @@ import {
   createTransitionRecord,
   createTransitionRequest,
   type NextStep,
-  type PandaStateName,
   type RecordProducer,
 } from "./index.js";
 
@@ -39,8 +38,6 @@ const commonIdentity = {
 };
 
 test("canonical capabilities contain only the five PANDA responsibilities", () => {
-  const retainedLegacyState: PandaStateName = "understanding";
-
   assert.deepEqual(PANDA_CAPABILITIES, [
     "perception",
     "analysis",
@@ -48,7 +45,6 @@ test("canonical capabilities contain only the five PANDA responsibilities", () =
     "decision",
     "action",
   ]);
-  assert.equal(retainedLegacyState, "understanding");
 });
 
 test("record constructors generate stable identity, version, and timestamps", () => {
