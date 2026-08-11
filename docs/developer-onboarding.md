@@ -450,9 +450,9 @@ Restart `pnpm dev` if a consumer does not pick up rebuilt package output.
 ### Adding tests
 
 The repository uses Node's built-in test runner for executable shared, core,
-SDK, and daemon tests. Tests live beside their implementations as
-`src/*.test.ts`. Add focused tests beside the affected implementation and keep
-the package script's build dependencies explicit.
+SDK, daemon, and dashboard helper tests. Tests live beside their implementations
+as `src/*.test.ts`. Add focused tests beside the affected implementation and
+keep the package script's build dependencies explicit.
 
 Run the current core suite with:
 
@@ -506,7 +506,7 @@ states.
 | `pnpm dev` | Runs daemon and dashboard development processes in parallel |
 | `pnpm build` | Builds every workspace recursively in dependency order |
 | `pnpm typecheck` | Builds first, then runs each workspace's no-emit type check |
-| `pnpm test` | Runs every workspace test script; shared, core, SDK, and daemon have executable tests |
+| `pnpm test` | Runs every workspace test script; shared, core, SDK, daemon, and dashboard have executable tests |
 | `pnpm start` | Starts the already-built daemon from `apps/daemon/dist/index.js` |
 | `pnpm run doctor` | Runs the source CLI and checks the default daemon health endpoint; use `run` because `pnpm doctor` resolves to pnpm's own command |
 | `pnpm generate:wallets` | Generates sensitive seed phrases and public donation addresses |
@@ -598,12 +598,6 @@ behind these boundaries.
 
 New contributors should not assume the following exists today:
 
-- a first-class goal repository or goal lifecycle runtime;
-- integration of canonical executions and traces into the current application
-  path;
-- daemon or SDK APIs for canonical execution and causal trace retrieval;
-- durable approvals or daemon wiring for the canonical real connector effect;
-- daemon/API/SDK integration of canonical goal verification;
 - durable sessions, executions, events, or restart recovery;
 - authentication, authorization, or production-safe network exposure;
 - API endpoint configuration shared across daemon, SDK, CLI, and dashboard;
