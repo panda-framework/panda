@@ -87,10 +87,12 @@ export interface GoalCriterion {
   readonly id: string;
   readonly description: string;
   readonly evidenceType?: string;
+  readonly expected?: unknown;
 }
 
 export interface Goal extends CanonicalRecord {
   readonly kind: "goal";
+  readonly revision: number;
   readonly objective: string;
   readonly priority: number;
   readonly constraints: readonly string[];
@@ -104,8 +106,12 @@ export interface Goal extends CanonicalRecord {
   readonly statusReason?: string;
 }
 
-export type GoalInput = Omit<KindedRecordInput<Goal>, "goalId"> & {
+export type GoalInput = Omit<
+  KindedRecordInput<Goal>,
+  "goalId" | "revision"
+> & {
   readonly goalId?: string;
+  readonly revision?: number;
 };
 
 export function createGoal(input: GoalInput): Goal {
@@ -115,6 +121,7 @@ export function createGoal(input: GoalInput): Goal {
     ...input,
     id: input.id ?? goalId,
     goalId,
+    revision: input.revision ?? 0,
     kind: "goal",
   });
 }

@@ -86,6 +86,10 @@ test("goal and execution constructors use their domain identity as the initial r
         id: "criterion_file",
         description: "proof.txt contains the expected bytes",
         evidenceType: "filesystem.observed",
+        expected: {
+          relativePath: "proof.txt",
+          content: "PANDA v0.1 completed",
+        },
       },
     ],
     failureCriteria: [],
@@ -103,6 +107,11 @@ test("goal and execution constructors use their domain identity as the initial r
   });
 
   assert.equal(goal.id, goal.goalId);
+  assert.equal(goal.revision, 0);
+  assert.deepEqual(goal.successCriteria[0].expected, {
+    relativePath: "proof.txt",
+    content: "PANDA v0.1 completed",
+  });
   assert.match(goal.id, /^goal_[a-f0-9]{16}$/);
   assert.equal(execution.id, execution.executionId);
   assert.match(execution.id, /^exe_[a-f0-9]{16}$/);

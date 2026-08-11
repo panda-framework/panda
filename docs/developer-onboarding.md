@@ -13,14 +13,14 @@ architecture, plans, and progress records.
 
 PANDA is a TypeScript pnpm monorepo at an early implementation stage; its root
 package is marked private to prevent accidental package publication. Phases 0
-through 6 are complete: the v0.1 product contract is frozen, additive canonical
+through 7 are complete: the v0.1 product contract is frozen, additive canonical
 contracts coexist with the legacy scaffold, the execution-scoped in-memory
 store retains ordered causal traces, the dynamic coordinator consumes
 capability-selected routes with bounded execution, and deterministic PANDA
-capabilities now route through an independent transition/effect policy gate and
-an opt-in real filesystem Action connector. Connector completion remains
-unverified and waits for feedback. Phase 7, outcome feedback and verification,
-is the next implementation phase. See
+capabilities now route through an independent transition/effect policy gate,
+an opt-in real filesystem Action connector, and a separate observer that
+verifies explicit Goal criteria. Phase 8, daemon API and SDK integration, is
+the next implementation phase. See
 [Implementation Progress](progress.md) for the current phase and validation
 baseline.
 
@@ -30,11 +30,11 @@ There are two models in the repository today:
 | --- | --- | --- |
 | Capability/state names | Seven legacy states: perception, understanding, memory, planning, decision, execution, reflection | Five PANDA capabilities: perception, analysis, network, decision, action |
 | Routing | `runPandaLoop` requests a predetermined sequence | Each capability returns a policy-permitted next step dynamically |
-| Goals and executions | The application path still uses sessions and messages; canonical contracts, an unwired execution store/coordinator, and deterministic capability implementations are available | First-class goals, execution-scoped state, outcomes, failures, and traces |
+| Goals and executions | The application path still uses sessions and messages; canonical contracts, separate in-memory goal/execution stores, an unwired coordinator, and deterministic closed-loop capabilities are available | First-class goals, execution-scoped state, outcomes, failures, and traces |
 | Storage | Process-local session storage plus an isolated in-memory execution and append-only trace store | The Phase 2 port permits replacement; durable storage remains later work |
 | Connectors | Legacy filesystem and GitHub connectors return simulated acceptance; the additive canonical filesystem Action connector performs a real write only when explicitly configured | Narrow, policy-gated connectors report real outcomes; effects are independently verified |
 | Security | Local unauthenticated HTTP/WebSocket scaffold | Explicit principals, policy checks, sandboxing, provenance, and auditable effects |
-| Tests | Five shared contract tests and 54 core tests cover contracts, storage, coordination, policy, deterministic capabilities, real connector execution/failures, and the legacy runtime; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
+| Tests | Five shared contract tests and 65 core tests cover contracts, goal/execution storage, coordination, policy, deterministic closed-loop capabilities, real effects, independent verification/failures, and the legacy runtime; other package tests are type checks | Unit, integration, failure-fixture, and end-to-end release coverage |
 
 Do not extend the seven-state model in new canonical contracts. The migration
 must remain additive until the application path has moved and the Phase 10
@@ -187,7 +187,7 @@ ignored generated artifacts. Change source files, not compiled output.
 | Workspace | Main entry point | Responsibility and current limits |
 | --- | --- | --- |
 | `@panda/shared` | `packages/shared/src/index.ts` | Additive v0.1 canonical contracts plus legacy session, observation, action, event, config, ID, timestamp, and logger definitions. Canonical records live in `contracts.ts`; legacy callers remain supported. |
-| `@panda/core` | `packages/core/src/index.ts` | Public execution-store, capability-registry, policy, and Action-connector ports; in-memory state; the dynamic execution coordinator; deterministic v0.1 capabilities, sandbox policy, and opt-in real filesystem connector; plus legacy runtime primitives, connectors, session storage, configuration, and executable tests. The additive canonical path is not wired into the applications yet, and completed effects still await independent verification. |
+| `@panda/core` | `packages/core/src/index.ts` | Public goal/execution-store, capability-registry, policy, Action-connector, and effect-observer ports; in-memory state; the dynamic execution coordinator; deterministic v0.1 closed-loop capabilities, sandbox policy, real filesystem connector, and independent verifier; plus legacy runtime primitives, connectors, session storage, configuration, and executable tests. The additive canonical path is not wired into the applications yet. |
 | `@panda/graph` | `packages/graph/src/index.ts` | Compatibility layer named around the original graph/loop concept. It constructs a new runtime and requests the fixed legacy state sequence. |
 | `@panda/sdk` | `packages/sdk/src/index.ts` | Minimal Fetch-based client for daemon health, sessions, and runs. Its default base URL is hard-coded. |
 | `@panda/daemon` | `apps/daemon/src/index.ts` | Owns the Fastify server, process-local sessions, a runtime instance, connector registration, and WebSocket fan-out. |
@@ -475,11 +475,12 @@ network, and action responsibilities distinct. Declare supported operations and
 permissions, validate boundary data, use least privilege, and return structured
 outcomes.
 
-Phase 6 now provides the required policy-gated filesystem Action connector for
-the one bounded v0.1 effect. It is enabled only when an embedded caller supplies
-an Action connector registry; the daemon remains on the legacy path. Connector
-dispatch, effect completion, and independent effect verification remain
-distinct records and states.
+Phase 7 now provides the complete embedded closed loop for the one bounded v0.1
+effect. It is enabled only when a caller supplies Goal storage, an Action
+connector registry, and an independent effect observer; the daemon remains on
+the legacy path. Connector dispatch, effect completion, environmental
+observation, goal verification, and termination remain distinct records and
+states.
 
 ## 9. Build, test, and validation reference
 
@@ -585,7 +586,7 @@ New contributors should not assume the following exists today:
   path;
 - daemon or SDK APIs for canonical execution and causal trace retrieval;
 - durable approvals or daemon wiring for the canonical real connector effect;
-- independent environmental verification of action outcomes;
+- daemon/API/SDK integration of canonical goal verification;
 - durable sessions, executions, events, or restart recovery;
 - authentication, authorization, or production-safe network exposure;
 - API endpoint configuration shared across daemon, SDK, CLI, and dashboard;
@@ -650,9 +651,10 @@ database implementation, and `InMemoryPandaStore` is the only session store.
 The compatibility connectors are stubs. They return an accepted result for
 supported legacy action types but do not perform the effect. The separate
 canonical Phase 6 Action connector performs a policy-authorized filesystem
-write only when an embedded caller explicitly registers it. The daemon does
-not configure that path yet, and even a completed canonical write waits for
-Phase 7 independent verification.
+write only when an embedded caller explicitly registers it. The Phase 7
+embedded profile can independently observe and verify that effect when a
+GoalStore and effect observer are also supplied. The daemon does not configure
+that canonical path until Phase 8.
 
 ### A package change does not appear in the live app
 
@@ -675,7 +677,7 @@ For a first small code change:
 4. [Conceptual Architecture](architecture/conceptual-architecture.md).
 5. The relevant focused architecture document and ADR.
 
-For Phase 7 or later runtime work, continue with:
+For Phase 8 or later runtime work, continue with:
 
 1. [Framework Requirements](requirements.md).
 2. [PANDA v0.1 Frozen Scope Contract](v0.1-scope-contract.md).
