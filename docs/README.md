@@ -1,5 +1,11 @@
 # PANDA Documentation
 
+## Direction and Measurement
+
+- [Guiding Principles and KPI Scorecard](guiding-principles-kpis.md) — the
+  project's operating character, measurable indicators, targets, evidence, and
+  links to requirements, architecture, delivery, and progress
+
 ## Getting Started
 
 - [Developer Onboarding](developer-onboarding.md) — local setup, architecture

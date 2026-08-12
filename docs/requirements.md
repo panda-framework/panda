@@ -24,6 +24,10 @@ Requirements marked **[Framework]** define the conceptual PANDA model.
 Requirements marked **[Runtime]** apply to a software runtime claiming
 conformance. Requirements marked **[Both]** apply at both levels.
 
+The [Guiding Principles and KPI Scorecard](guiding-principles-kpis.md) provides
+non-normative measures for how the project pursues these requirements. It does
+not replace, relax, or determine conformance with any requirement below.
+
 ## 2. System objective and conformance
 
 - **PANDA-AUT-001 [Framework]** A PANDA system SHALL be capable of autonomously

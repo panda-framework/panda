@@ -200,6 +200,9 @@ Confirm all of the following:
 - no secret or generated file is present;
 - the diff contains no accidental formatting damage;
 - no unrelated user work will be staged.
+- the applicable [Guiding Principles and
+  KPIs](guiding-principles-kpis.md) have identified evidence or a documented
+  reason they do not apply.
 
 When the working tree contains mixed changes, stage only explicit paths. Do not
 use `git add -A` unless the complete working tree has been confirmed as in
@@ -215,6 +218,11 @@ Run checks appropriate to the change before committing:
   tests.
 - Runtime behavior: affected integration and end-to-end tests.
 - UI behavior: build plus the relevant browser or component verification.
+
+Record applicable KPI results using the [Guiding Principles and KPI
+Scorecard](guiding-principles-kpis.md). A pull request may link to the phase or
+release scorecard instead of duplicating it, but it must not claim a KPI result
+without the defined scope, denominator, target, and evidence.
 
 Record the exact checks and their results in the commit body or final push
 report. If a check was intentionally not run, state why.
@@ -286,7 +294,8 @@ create a ready-for-review PR:
 ```bash
 test "$branch" != "main"
 pr_body="$(mktemp)"
-# Edit "$pr_body" with: what changed, why, user impact, and validation.
+# Edit "$pr_body" with: what changed, why, user impact, validation, and
+# applicable KPI evidence or a link to the relevant scorecard.
 gh pr create \
   --base main \
   --head "$branch" \

@@ -241,3 +241,9 @@ human approval/control APIs, multi-principal resource authorization, TLS and
 credential lifecycle, production metrics/privacy/security controls, and
 replacing the local file adapter with a transactional multi-process store when
 deployment needs require it.
+
+Beginning with the next active phase or release, progress updates should also
+record the applicable results and initial baselines from the [Guiding
+Principles and KPI Scorecard](guiding-principles-kpis.md). Historical phase
+evidence remains valid, but should not be relabeled as a KPI measurement unless
+it includes the defined scope, denominator, target, and evidence.
