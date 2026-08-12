@@ -19,6 +19,8 @@ service principal and refuses unauthenticated non-loopback exposure.
 - Documentation index: [`docs/README.md`](./docs/README.md)
 - Developer onboarding: [`docs/developer-onboarding.md`](./docs/developer-onboarding.md)
 - Framework requirements: [`docs/requirements.md`](./docs/requirements.md)
+- Guiding principles and KPI scorecard:
+  [`docs/guiding-principles-kpis.md`](./docs/guiding-principles-kpis.md)
 - v0.1 release profile: [`docs/v0.1-release-profile.md`](./docs/v0.1-release-profile.md)
 - Current implementation progress: [`docs/progress.md`](./docs/progress.md)
 
@@ -49,6 +51,10 @@ signal
 ```
 
 ## Design goals
+
+The [Guiding Principles and KPI Scorecard](./docs/guiding-principles-kpis.md)
+turns PANDA's intended operating character into measurable, evidence-backed
+review criteria. The architectural design goals below remain its foundation.
 
 - **Modular:** capability implementations, stores, policies, and connectors are
   replaceable behind typed boundaries.

@@ -5,3 +5,12 @@ Every execution has a correlation ID; every invocation, transition, message, dec
 Required records answer what was perceived, what evidence and analysis were used, what information crossed boundaries, which options and policies applied, why a decision was selected, what effect was attempted, what occurred, and what happened next. Decision reasons may be structured explanations or references; PANDA does not claim access to hidden model reasoning.
 
 Traces represent invocations and connector calls, structured logs describe operational detail, metrics summarize health/latency/rates, and audit records capture security- and effect-relevant facts. Redaction, access control, retention, and payload hashing protect secrets and personal data. Telemetry backend choice is deferred.
+
+## KPI evidence
+
+The [Guiding Principles and KPI Scorecard](../guiding-principles-kpis.md) uses
+traces, tests, measurements, audits, and delivery records as evidence. KPI
+reporting follows the same provenance, access-control, redaction, retention,
+and anti-tampering expectations as other observability output. A summary value
+should link to its measurement window, denominator, workload, and underlying
+evidence; it must not replace the causal record from which it was derived.

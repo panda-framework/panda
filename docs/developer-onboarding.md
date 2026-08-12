@@ -317,11 +317,13 @@ does not initialize this monorepo or alter daemon runtime configuration.
 Before changing code:
 
 1. Read [Framework Requirements](requirements.md).
-2. Read the relevant [Architecture](architecture/README.md) document and ADRs.
-3. Check [Implementation Progress](progress.md), the
+2. Identify the applicable [Guiding Principles and
+   KPIs](guiding-principles-kpis.md) and turn them into acceptance evidence.
+3. Read the relevant [Architecture](architecture/README.md) document and ADRs.
+4. Check [Implementation Progress](progress.md), the
    [v0.1 Implementation Plan](v0.1-implementation-plan.md), and active phase.
-4. Inspect affected source, tests, and recent history.
-5. Define scope, non-goals, acceptance criteria, and validation.
+5. Inspect affected source, tests, and recent history.
+6. Define scope, non-goals, acceptance criteria, and validation.
 
 Workspace consumers import built package exports. After changing
 `packages/*/src`, rebuild the package and consumers or run the full build. The
@@ -390,6 +392,9 @@ still required; investigate actual errors or new warnings separately.
 
 A phase should document its objective, scope, non-goals, evidence,
 dependencies, tasks, risks, acceptance criteria, validation, and limitations.
+Include results for every applicable KPI from the [Guiding Principles and KPI
+Scorecard](guiding-principles-kpis.md), or identify when the baseline will be
+measured. Do not infer a KPI result from evidence that does not measure it.
 If evidence changes an accepted design, update the relevant architecture
 decision before implementation and assess dependent phases.
 
@@ -490,6 +495,10 @@ incomplete, preserve the data directory for investigation; do not edit or
 delete evidence until the failure is understood.
 
 ## 14. Definition of done
+
+Use the [Guiding Principles and KPI Scorecard](guiding-principles-kpis.md)
+alongside the checks below. Applicable KPI results need inspectable evidence;
+missed targets need an explicit release decision or owned follow-up.
 
 A PANDA change is complete when its documented acceptance criteria are met;
 implementation follows current requirements and architecture; focused and
