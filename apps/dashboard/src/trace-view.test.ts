@@ -7,6 +7,7 @@ import {
 } from "@panda/shared";
 import {
   capabilityRoute,
+  executionFlow,
   executionInsights,
   orderTrace,
   traceCause,
@@ -87,6 +88,63 @@ test("extracts the actual repeated capability route in sequence order", () => {
   ];
 
   assert.deepEqual(capabilityRoute(trace), ["perception", "analysis"]);
+});
+
+test("builds an evidence-linked flow graph from actual trace milestones", () => {
+  const trace = [
+    record(1, "signal", "signal.accepted", {
+      payload: { path: "proof.txt", content: "ok" },
+    }),
+    record(2, "capability-invocation", "capability.started", {
+      capability: "perception",
+    }),
+    record(3, "capability-invocation", "capability.started", {
+      capability: "analysis",
+    }),
+    record(4, "capability-invocation", "capability.started", {
+      capability: "action",
+    }),
+    record(5, "policy-evaluation", "policy.effect.allow", {
+      point: "effect",
+      result: "allow",
+    }),
+    {
+      ...record(6, "connector-invocation", "connector.completed", {
+        connectorId: "filesystem",
+        status: "completed",
+      }),
+      producer: { kind: "connector", connectorId: "filesystem" } as const,
+    },
+    record(7, "capability-invocation", "capability.started", {
+      capability: "perception",
+    }),
+    record(8, "capability-invocation", "capability.started", {
+      capability: "analysis",
+    }),
+    record(9, "termination", "execution.succeeded", {
+      outcome: "succeeded",
+    }),
+  ];
+
+  const flow = executionFlow(trace);
+
+  assert.deepEqual(
+    flow.map((step) => step.kind),
+    [
+      "input",
+      "perception",
+      "analysis",
+      "action",
+      "policy",
+      "connector",
+      "perception",
+      "analysis",
+      "success",
+    ],
+  );
+  assert.equal(flow[1]?.detail, "Read and normalized the request");
+  assert.equal(flow[6]?.detail, "Observed the real file after the write");
+  assert.equal(flow[8]?.sourceSequence, 9);
 });
 
 test("derives operator insights only from stored payload fields", () => {
