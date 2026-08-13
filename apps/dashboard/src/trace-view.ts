@@ -30,6 +30,29 @@ export interface ExecutionInsight {
   readonly sourceSequence?: number;
 }
 
+export type ExecutionFlowKind =
+  | "input"
+  | "perception"
+  | "analysis"
+  | "network"
+  | "decision"
+  | "action"
+  | "policy"
+  | "connector"
+  | "success"
+  | "waiting"
+  | "failure"
+  | "runtime";
+
+export interface ExecutionFlowStep {
+  readonly id: string;
+  readonly kind: ExecutionFlowKind;
+  readonly system: string;
+  readonly label: string;
+  readonly detail: string;
+  readonly sourceSequence: number;
+}
+
 const visualKinds: Readonly<Record<TraceCategory, TraceVisualKind>> = {
   signal: "observed",
   goal: "observed",
@@ -85,6 +108,128 @@ export function capabilityRoute(
     return typeof record.payload.capability === "string"
       ? [record.payload.capability]
       : [];
+  });
+}
+
+export function executionFlow(
+  trace: readonly StoredPandaTraceRecord[],
+): ExecutionFlowStep[] {
+  const ordered = orderTrace(trace);
+  const capabilityTotals = new Map<string, number>();
+  const capabilityOccurrences = new Map<string, number>();
+
+  for (const record of ordered) {
+    const capability = startedCapability(record);
+    if (capability !== undefined) {
+      capabilityTotals.set(
+        capability,
+        (capabilityTotals.get(capability) ?? 0) + 1,
+      );
+    }
+  }
+
+  return ordered.flatMap((record) => {
+    if (record.category === "signal") {
+      return [
+        flowStep(
+          record,
+          "input",
+          "Input",
+          "New request",
+          summarizeSignal(record.payload),
+        ),
+      ];
+    }
+
+    const capability = startedCapability(record);
+    if (capability !== undefined) {
+      const occurrence = (capabilityOccurrences.get(capability) ?? 0) + 1;
+      capabilityOccurrences.set(capability, occurrence);
+      return [
+        flowStep(
+          record,
+          capabilityKind(capability),
+          "PANDA capability",
+          titleCase(capability),
+          capabilityFlowDetail(
+            capability,
+            occurrence,
+            capabilityTotals.get(capability) ?? 1,
+          ),
+        ),
+      ];
+    }
+
+    if (
+      record.category === "policy-evaluation" &&
+      isRecord(record.payload) &&
+      record.payload.point === "effect"
+    ) {
+      const result = recordString(record.payload, "result")?.toLowerCase();
+      return [
+        flowStep(
+          record,
+          "policy",
+          "Safety boundary",
+          "Policy gate",
+          result === "allow"
+            ? "Allowed the external effect"
+            : result === "deny"
+              ? "Blocked the external effect"
+              : "Evaluated the external effect",
+        ),
+      ];
+    }
+
+    if (record.category === "connector-invocation") {
+      const connector =
+        record.producer.kind === "connector"
+          ? record.producer.connectorId
+          : recordString(record.payload, "connectorId") ?? "effect";
+      const status = recordString(record.payload, "status");
+      return [
+        flowStep(
+          record,
+          "connector",
+          "Effect system",
+          `${titleCase(connector)} connector`,
+          status === undefined
+            ? "Performed the requested effect"
+            : `${titleCase(status)} the requested effect`,
+        ),
+      ];
+    }
+
+    if (record.category === "wait") {
+      return [
+        flowStep(
+          record,
+          "waiting",
+          "Outcome",
+          "Waiting",
+          "Paused for more information",
+        ),
+      ];
+    }
+
+    if (record.category === "termination") {
+      const outcome =
+        recordString(record.payload, "outcome") ??
+        record.type.split(".").at(-1) ??
+        "finished";
+      const kind = terminalFlowKind(outcome);
+      return [
+        flowStep(
+          record,
+          kind,
+          "Outcome",
+          titleCase(outcome),
+          terminalFlowDetail(kind),
+        ),
+      ];
+    }
+
+    return [];
   });
 }
 
@@ -206,6 +351,84 @@ function findLatest(
   category: TraceCategory,
 ): StoredPandaTraceRecord | undefined {
   return [...trace].reverse().find((record) => record.category === category);
+}
+
+function flowStep(
+  record: StoredPandaTraceRecord,
+  kind: ExecutionFlowKind,
+  system: string,
+  label: string,
+  detail: string,
+): ExecutionFlowStep {
+  return {
+    id: record.id,
+    kind,
+    system,
+    label,
+    detail,
+    sourceSequence: record.sequence,
+  };
+}
+
+function startedCapability(
+  record: StoredPandaTraceRecord,
+): string | undefined {
+  return record.type === "capability.started"
+    ? recordString(record.payload, "capability")
+    : undefined;
+}
+
+function capabilityKind(capability: string): ExecutionFlowKind {
+  return capability === "perception" ||
+    capability === "analysis" ||
+    capability === "network" ||
+    capability === "decision" ||
+    capability === "action"
+    ? capability
+    : "runtime";
+}
+
+function capabilityFlowDetail(
+  capability: string,
+  occurrence: number,
+  total: number,
+): string {
+  if (capability === "perception") {
+    return total > 1 && occurrence === total
+      ? "Observed the real file after the write"
+      : "Read and normalized the request";
+  }
+  if (capability === "analysis") {
+    return total > 1 && occurrence === total
+      ? "Compared the observed file with the goal"
+      : "Checked requirements and readiness";
+  }
+  if (capability === "decision") return "Selected the next safe step";
+  if (capability === "action") return "Prepared the requested effect";
+  if (capability === "network") return "Exchanged information externally";
+  return `Ran ${titleCase(capability)}`;
+}
+
+function terminalFlowKind(outcome: string): ExecutionFlowKind {
+  if (outcome === "succeeded") return "success";
+  if (outcome === "waiting") return "waiting";
+  if (outcome === "failed" || outcome === "cancelled") return "failure";
+  return "runtime";
+}
+
+function terminalFlowDetail(kind: ExecutionFlowKind): string {
+  if (kind === "success") return "The verified evidence satisfied the goal";
+  if (kind === "waiting") return "The run needs more information";
+  if (kind === "failure") return "The run ended without verified success";
+  return "The run reached a terminal state";
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[-_.\s]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
 }
 
 function summarizeSignal(value: unknown): string {
